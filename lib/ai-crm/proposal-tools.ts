@@ -1,0 +1,7 @@
+import { z } from "zod";
+
+export const PROPOSAL_TOOL_DEFINITIONS = [
+  { type: "function" as const, name: "read_pending_proposals", description: "Liest die aktuellste noch offene Vorschlagsgruppe in der sichtbaren Unterhaltung mit Reihenfolge und bearbeitbaren Feldern. Vor 'zweiter Vorschlag' oder einer Korrektur verwenden. Diese Entwürfe sind keine gespeicherten CRM-Einträge.", strict: true, parameters: { type: "object", properties: {}, required: [], additionalProperties: false } },
+  { type: "function" as const, name: "revise_pending_proposal", description: "Ersetzt einen zuvor gelesenen Vorschlag durch einen bearbeiteten Entwurf. Verändert KEINE CRM-Daten. Der neue Stand benötigt eine erneute sichtbare Bestätigung. Nur Felder aus read_pending_proposals und eindeutige neue Werte verwenden; unklare Termine/Verantwortliche erfragen.", strict: true, parameters: { type: "object", properties: { actionId: { type: "string" }, changes: { type: "array", items: { type: "object", properties: { field: { type: "string" }, value: { type: "string" } }, required: ["field", "value"], additionalProperties: false } } }, required: ["actionId", "changes"], additionalProperties: false } },
+] as const;
+export const reviseProposalInput = z.object({ actionId: z.string().min(1), changes: z.array(z.object({ field: z.string().min(1).max(80), value: z.string().max(8000) }).strict()).min(1).max(12) }).strict();

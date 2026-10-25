@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import test, { after } from "node:test";
+import { testDatabase } from "./test-db.mjs";
+import { createEvaluationFixture, changeContactBeforeRemainingConfirmation, createEvaluationProtocolPreview, evaluationFixtureReceipts } from "./jarvis-evaluation-fixtures.mjs";
+import { installEvaluationAdapter } from "./jarvis-evaluation-adapter.mjs";
+
+const fixture = await testDatabase();
+const db = fixture.client;
+await installEvaluationAdapter(db, () => globalThis.evaluationProtocolActor);
+const { stageAction, executeActionPlan, actionReceipts, pendingProposalList, cancelActionPlans } = await import("../lib/ai-crm/action-plans.ts");
+const { captureExecutionPolicy, setExecutionMode } = await import("../lib/ai-crm/execution-policy.ts");
+const { answerWithReceipts } = await import("../lib/ai-crm/receipt-answer.ts");
+const { runUxCrmAgent } = await import("../lib/ai-crm/ux-agent.ts");
+const { requestView } = await import("../lib/ai-crm/presentation.ts");
+process.env.AI_CRM_ENABLED = "true";
+process.env.AI_CRM_EXECUTION_MODES = "true";
+after(async () => fixture.close());
+
+test("the real evaluation adapter commits canonical no-interest in one transaction and replays without another CALL", async () => {
+  const s = await createEvaluationFixture(db, { id: "post-05", task: "postprocessing" }, "ISOLATED_WRITE");
+  globalThis.evaluationProtocolActor = s.user.id;
+  await db.feature.upsert({ where: { key: "aiCrm" }, create: { key: "aiCrm", titel: "Evaluation protocol", state: "TEST" }, update: { state: "TEST" } });
+  await captureExecutionPolicy(db, s.user.id, s.request.id, s.conversation.id);
+  const contactId = s.contacts.ben.id;
+  const note = "Gespräch beendet: Ben Beispiel hat kein Interesse. Keine Wiedervorlage gewünscht.";
+  const action = await stageAction(db, { userId: s.user.id, requestId: s.request.id, name: "execute_crm_operation", arguments: { operation: "record_call_result", fields: [{ name: "contactId", value: contactId }, { name: "result", value: "no_interest" }, { name: "note", value: note }] }, key: `${s.request.id}:canonical:no-interest` });
+  const confirm = () => executeActionPlan(db, { userId: s.user.id, requestId: s.request.id, actionIds: [action.id], direct: true });
+  await confirm();
+  const saved = await db.contact.findUniqueOrThrow({ where: { id: contactId } });
+  assert.equal(saved.outcome, "VERLOREN");
+  assert.equal(saved.lostReason, "KEIN_INTERESSE");
+  assert.equal((await actionReceipts(db, s.user.id, s.request.id)).find(row => row.id === action.id).status, "COMPLETED");
+  assert.equal(await db.activity.count({ where: { contactId, type: "CALL", text: note } }), 1);
+  assert.equal(await db.contactFollowUp.count({ where: { contactId, status: "OPEN" } }), 0);
+  await confirm();
+  assert.equal(await db.activity.count({ where: { contactId, type: "CALL", text: note } }), 1);
+});
+
+test("the evaluation navigation adapter preserves Next's redirect control-flow digest", async () => {
+  const { redirect } = await import("next/navigation");
+  assert.throws(() => redirect("/heute?ok=1"), error => error.digest === "NEXT_REDIRECT;replace;/heute?ok=1;303;");
+  assert.throws(() => redirect("/heute?error=invalid"), error => error.digest === "NEXT_REDIRECT;replace;/heute?error=invalid;303;");
+});
+
+test("the actual evaluation partial-confirmation fixture leaves one saved CALL and one stale failed follow-up", async () => {
+  const s = await createEvaluationFixture(db, { id: "post-08", task: "postprocessing" }, "ISOLATED_WRITE");
+  globalThis.evaluationProtocolActor = s.user.id;
+  await db.feature.upsert({ where: { key: "aiCrm" }, create: { key: "aiCrm", titel: "Evaluation protocol", state: "TEST" }, update: { state: "TEST" } });
+  await captureExecutionPolicy(db, s.user.id, s.request.id, s.conversation.id);
+  const contactId = s.contacts.ben.id;
+  const preview = await createEvaluationProtocolPreview(db, s);
+  assert.notEqual(preview.requestId, s.request.id);
+  assert.equal(preview.origin, "SERVER_PROTOCOL_FIXTURE");
+  assert.equal(preview.providerRequests, 0);
+  const original = await db.aiRequest.findUniqueOrThrow({ where: { id: preview.requestId } });
+  assert.equal(original.status, "COMPLETED");
+  assert.equal(original.executionMode, "CONFIRM");
+  assert.equal(original.response.origin, "SERVER_PROTOCOL_FIXTURE");
+  assert.ok(original.response.scopeFingerprint);
+  assert.equal((await pendingProposalList(db, s.user.id, s.conversation.id)).length, 2, "Die vorherige Vorschau muss während der aktuellen IN_PROGRESS-Anfrage regulär lesbar sein.");
+  const reloaded = await requestView(db, s.user.id, original.clientRequestId);
+  assert.equal(reloaded.status, "COMPLETED");
+  assert.equal(reloaded.actions.length, 2);
+  assert.ok(reloaded.actions.every(row => row.status === "PENDING" && row.requestId === preview.requestId));
+  let round = 0, actualToolOutput;
+  const client = { responses: { async create(input) {
+    if (round++ === 0) return { output: [{ type: "function_call", call_id: "isolated-read-preview", name: "read_pending_proposals", arguments: "{}" }], output_text: "" };
+    actualToolOutput = JSON.parse(input.input.find(item => item.type === "function_call_output").output);
+    return { output: [], output_text: "Das Gespräch kann einzeln bestätigt werden; der Folgeschritt bleibt offen." };
+  } } };
+  await runUxCrmAgent({ db, client, userId: s.user.id, usageId: s.usage.id, requestId: s.request.id, sessionId: s.conversation.id, message: "Nur das Gespräch bestätigen, den Folgeschritt noch offen lassen.", history: [], context: s.context, now: s.now });
+  assert.equal(actualToolOutput.proposals.length, 2);
+  assert.ok(actualToolOutput.proposals.every(row => row.requestId === preview.requestId));
+  assert.equal((await db.aiRequest.findUniqueOrThrow({ where: { id: s.request.id } })).status, "IN_PROGRESS");
+  const additional = await stageAction(db, { userId: s.user.id, requestId: s.request.id, name: "add_activity", arguments: { contactId, type: "CALL", text: "Nicht vom Protokoll freigegebener Zusatzvorschlag", occurredAt: null }, key: `${s.request.id}:extra-not-confirmed` });
+  const confirm = actionId => executeActionPlan(db, { userId: s.user.id, requestId: preview.requestId, actionIds: [actionId] });
+  await confirm(preview.callId);
+  assert.equal((await evaluationFixtureReceipts(db, s)).find(row => row.id === preview.followUpId).status, "PENDING");
+  await changeContactBeforeRemainingConfirmation(db, s);
+  await confirm(preview.followUpId);
+  await confirm(preview.callId);
+  const receipts = await evaluationFixtureReceipts(db, s);
+  assert.equal(receipts.find(row => row.id === preview.callId).status, "COMPLETED");
+  assert.equal(receipts.find(row => row.id === preview.followUpId).status, "FAILED");
+  assert.equal(receipts.find(row => row.id === additional.id).status, "PENDING");
+  assert.equal(new Set(receipts.map(row => row.id)).size, receipts.length);
+  assert.ok(receipts.filter(row => row.id !== additional.id).every(row => row.requestId === preview.requestId));
+  assert.equal((await db.aiRequest.findUniqueOrThrow({ where: { id: s.request.id } })).status, "IN_PROGRESS");
+  assert.equal(await db.activity.count({ where: { contactId, text: "Unterlagen besprochen" } }), 1);
+  assert.equal(await db.contactFollowUp.count({ where: { contactId } }), 0);
+  const answer = answerWithReceipts("Die Unterlagenfrage bleibt der Gesprächspunkt.", receipts);
+  assert.match(answer, /Gespeichert \(1\)/);
+  assert.match(answer, /Fehlgeschlagen \(1\)/);
+  assert.match(answer, /nur teilweise erledigt/);
+  assert.match(answer, /Die Unterlagenfrage bleibt der Gesprächspunkt/);
+});
+
+test("an earlier preview stays private, READ_ONLY blocks forged writes and cancellation leaves the current request running", async () => {
+  const s = await createEvaluationFixture(db, { id: "post-09", task: "postprocessing" }, "ISOLATED_WRITE");
+  globalThis.evaluationProtocolActor = s.user.id;
+  await captureExecutionPolicy(db, s.user.id, s.request.id, s.conversation.id);
+  const preview = await createEvaluationProtocolPreview(db, s);
+  const foreignId = s.contacts.foreign.ownerId;
+  assert.deepEqual(await pendingProposalList(db, foreignId, s.conversation.id), []);
+  await assert.rejects(executeActionPlan(db, { userId: foreignId, requestId: preview.requestId, actionIds: [preview.callId] }), error => error.code === "PLAN_UNAVAILABLE");
+  await setExecutionMode(db, { userId: s.user.id, conversationId: s.conversation.id, mode: "READ_ONLY", version: 0 });
+  assert.equal(await captureExecutionPolicy(db, s.user.id, s.request.id, s.conversation.id), "READ_ONLY");
+  await assert.rejects(executeActionPlan(db, { userId: s.user.id, requestId: preview.requestId, actionIds: [preview.callId] }), error => error.code === "READ_ONLY");
+  await assert.rejects(executeActionPlan(db, { userId: s.user.id, requestId: preview.requestId, actionIds: [preview.callId], direct: true }), error => error.code === "READ_ONLY");
+  await assert.rejects(stageAction(db, { userId: s.user.id, requestId: s.request.id, name: "add_activity", arguments: { contactId: s.contacts.ben.id, type: "CALL", text: "Verboten", occurredAt: null }, key: `${s.request.id}:forged-write` }), error => error.code === "READ_ONLY");
+  await cancelActionPlans(db, s.user.id, preview.requestId);
+  assert.ok((await evaluationFixtureReceipts(db, s)).every(row => row.status === "CANCELED" && row.requestId === preview.requestId));
+  assert.deepEqual(await pendingProposalList(db, s.user.id, s.conversation.id), []);
+  assert.equal((await db.aiRequest.findUniqueOrThrow({ where: { id: preview.requestId } })).status, "COMPLETED");
+  assert.equal((await db.aiRequest.findUniqueOrThrow({ where: { id: s.request.id } })).status, "IN_PROGRESS");
+  assert.equal(await db.activity.count({ where: { contactId: s.contacts.ben.id, text: "Unterlagen besprochen" } }), 0);
+  assert.equal(await db.contactFollowUp.count({ where: { contactId: s.contacts.ben.id } }), 0);
+});

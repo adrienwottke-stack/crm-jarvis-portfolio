@@ -1,0 +1,1929 @@
+<!doctype html>
+<!--
+  KOPIE. Die Quelle liegt in "ERGO TOOLS/storno/index.html" (eigenes Repo,
+  github.com/adrienwottke-stack/storno-spiel). Hier steht sie, weil die Kachel
+  auf /spiel nicht in eine fremde Anwendung zeigen soll - siehe
+  lib/freischaltung.ts.
+
+  Der eingebettete Einstiegsmodus und ./storno-tutorial.js gehören ebenfalls
+  zu dieser CRM-Fassung. Bei einer Aktualisierung beide erhalten.
+
+  Beim Nachziehen einer neuen Fassung gehen zwei Dinge verloren, die es nur in
+  dieser Kopie gibt. Beide wieder einsetzen:
+    1. <a class="heimweg"> gleich hinter <body> - der Weg zurueck nach /spiel.
+       In der installierten App gibt es keinen Zurueck-Knopf des Browsers.
+    2. Der .heimweg-Block im <style> und die Polsterung oben in .screen, die
+       den Streifen dafuer freihaelt.
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F141B">
+<title>STORNO · Überlebe den schönsten Job der Welt</title>
+<meta property="og:title" content="STORNO">
+<meta property="og:description" content="Überlebe den schönsten Job der Welt. Ein Kartenspiel über Vertrieb, Familie und die Jahresendrallye.">
+<meta name="description" content="Überlebe den schönsten Job der Welt. Wische dich durch ein Jahr Außendienst.">
+<style>
+  :root {
+    --bg: #0F141B;
+    --paper: #FAF7EF;
+    --paper-dim: #EFE9DA;
+    --ink: #15181D;
+    --ink-soft: #4A545E;
+    --red: #E23B2E;
+    --red-deep: #8E1F16;
+    --yellow: #FFD43A;
+    --green: #2E6B4F;
+    --cream: #F2EDE0;
+    --font-stamp: Impact, 'HelveticaNeue-CondensedBlack', 'Arial Narrow', sans-serif;
+    --font-card: Georgia, 'Times New Roman', serif;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); }
+
+  #storno {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(130% 100% at 50% 0%, rgba(60,90,120,.14) 0%, transparent 60%),
+      repeating-linear-gradient(0deg, transparent 0 25px, rgba(120,150,185,.05) 25px 26px),
+      repeating-linear-gradient(90deg, transparent 0 25px, rgba(120,150,185,.05) 25px 26px),
+      var(--bg);
+    color: var(--cream);
+    font-family: var(--font-ui);
+    display: flex; justify-content: center;
+    overflow: hidden;
+    user-select: none; -webkit-user-select: none;
+  }
+  .frame {
+    width: 100%; max-width: 430px; height: 100%;
+    position: relative;
+  }
+
+  #muteBtn {
+    all: unset; cursor: pointer;
+    flex: 0 0 auto;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--cream); opacity: .5;
+    border: 2px solid rgba(242,237,224,.3); border-radius: 12px;
+    transition: opacity .15s;
+  }
+  #muteBtn:hover, #muteBtn:focus-visible { opacity: .9; }
+  #muteBtn svg { width: 20px; height: 20px; }
+  #muteBtn.off .wav { display: none; }
+  #muteBtn:not(.off) .mut { display: none; }
+
+  /* ---------- Screens ---------- */
+  .screen {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    /* Oben Platz fuer den Rueckweg ins CRM (.heimweg, fixiert). Ohne diesen
+       Streifen legt sich der Knopf im Spiel ueber die erste Wert-Kachel.
+       .stage traegt flex:1 und schluckt die Differenz - die Karte wird ein
+       paar Pixel flacher, verdeckt wird nichts. */
+    padding: max(42px, calc(env(safe-area-inset-top) + 34px)) 14px max(12px, env(safe-area-inset-bottom));
+  }
+  .screen.on { display: flex; }
+  .tutorial .screen { padding: 12px 14px; }
+
+  /* ---------- Stamp ---------- */
+  .stamp {
+    display: inline-block;
+    font-family: var(--font-stamp);
+    text-transform: uppercase;
+    color: var(--red);
+    border: 5px solid var(--red);
+    border-radius: 8px;
+    padding: 2px 16px 5px;
+    letter-spacing: .05em;
+    transform: rotate(-6deg);
+    opacity: .95;
+    -webkit-mask-image: radial-gradient(circle at 30% 40%, #000 96%, transparent 100%);
+  }
+  .stamp.green { color: var(--green); border-color: var(--green); }
+
+  /* ---------- Intro: Plakat statt PDF ---------- */
+  #intro { justify-content: space-between; text-align: center; overflow-y: auto; }
+  .form-line {
+    font-size: 9px; letter-spacing: .24em; text-transform: uppercase;
+    color: rgba(242,237,224,.45); padding-top: 4px;
+  }
+  .hero { padding: 10px 0 0; }
+  .hero .stamp {
+    font-size: clamp(56px, 20vw, 88px); line-height: 1;
+    border-width: 6px;
+    animation: logoIn .55s cubic-bezier(.2,.9,.3,1.35) both;
+  }
+  @keyframes logoIn {
+    0% { transform: rotate(-6deg) scale(2.1); opacity: 0; }
+    60% { transform: rotate(-6deg) scale(.94); opacity: 1; }
+    100% { transform: rotate(-6deg) scale(1); }
+  }
+  .intro-sub {
+    font-family: var(--font-card); font-style: italic;
+    font-size: 16px; color: var(--cream); margin-top: 14px;
+  }
+  .chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 0; }
+  .chips div {
+    background: var(--paper); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 10px;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.45);
+    padding: 7px 11px; font-size: 12.5px; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .chips div:nth-child(odd) { transform: rotate(-2deg); }
+  .chips div:nth-child(even) { transform: rotate(1.6deg); }
+  .chips span { display: flex; }
+  .chips svg { width: 18px; height: 18px; }
+  .intro-rules {
+    font-size: 13.5px; line-height: 1.6; color: rgba(242,237,224,.85);
+    margin: 4px auto; max-width: 330px;
+  }
+  .intro-rules b { color: var(--yellow); }
+  .intro-rules b.warn { color: var(--red); }
+  .record {
+    font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: rgba(242,237,224,.5); padding-top: 2px; display: none;
+  }
+  .record.on { display: block; }
+  .sig {
+    margin: 6px auto 0; width: min(300px, 86%);
+    background: var(--paper);
+    border: 2.5px solid var(--ink); border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.45);
+    padding: 10px 14px 8px;
+    transform: rotate(-1deg);
+  }
+  .sig input {
+    all: unset; display: block; width: 100%; text-align: center;
+    font-family: var(--font-card); font-style: italic; font-size: 19px;
+    color: var(--ink); min-height: 30px;
+    border-bottom: 1.5px dashed rgba(21,24,29,.4);
+    padding-bottom: 4px;
+  }
+  .sig input::placeholder { color: rgba(21,24,29,.35); }
+  .sig small {
+    display: block; text-align: center;
+    font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase;
+    font-weight: 800; color: var(--ink-soft); margin-top: 5px;
+  }
+  .btn-big {
+    all: unset; cursor: pointer; display: block; margin: 10px auto 0;
+    background: var(--yellow); color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 14px;
+    box-shadow: 6px 6px 0 rgba(0,0,0,.55);
+    padding: 13px 26px; text-align: center; min-height: 44px;
+    font-family: var(--font-stamp); font-size: 21px;
+    text-transform: uppercase; letter-spacing: .06em;
+    transition: transform .08s, box-shadow .08s;
+  }
+  .btn-big small {
+    display: block; font-family: var(--font-ui); font-size: 10px;
+    font-weight: 700; letter-spacing: .16em; margin-top: 3px; opacity: .75;
+  }
+  .btn-big:active { transform: translate(4px,4px); box-shadow: 2px 2px 0 rgba(0,0,0,.55); }
+  .btn-big:focus-visible { outline: 3px solid var(--yellow); outline-offset: 4px; }
+  .intro-foot {
+    font-size: 10px; color: rgba(242,237,224,.4); line-height: 1.6; padding: 12px 0 2px;
+  }
+
+  /* ---------- HUD: fette Wert-Kacheln ---------- */
+  .hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 2px 4px 0; }
+  .meter {
+    position: relative;
+    background: var(--paper); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 12px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.45);
+    padding: 7px 6px 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .meter .ico { line-height: 1; display: flex; }
+  .meter .ico svg { width: 22px; height: 22px; }
+  .meter .track {
+    width: 100%; height: 8px; border-radius: 4px;
+    background: rgba(21,24,29,.15);
+    overflow: hidden;
+  }
+  .meter .fill {
+    height: 100%; background: var(--yellow);
+    border-radius: 4px;
+    transition: width .45s cubic-bezier(.2,.8,.3,1);
+  }
+  .meter span.lbl {
+    font-size: 8px; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 800; color: var(--ink-soft);
+  }
+  /* Wirkungs-Vorschau: Rot kostet, Gelb hilft */
+  .meter .dot {
+    position: absolute; top: -5px; right: -5px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--red); border: 2px solid var(--paper);
+    opacity: 0; transform: scale(.4);
+    transition: opacity .15s, transform .15s;
+  }
+  .meter .dot.good { background: var(--yellow); border-color: var(--ink); }
+  .meter .dot.show { opacity: 1; transform: scale(1); }
+  .meter .dot.big { transform: scale(1.45); }
+  .meter.danger { border-color: var(--red); animation: tileShake .55s infinite; }
+  .meter.danger .fill { background: var(--red); }
+  .meter.danger .ico { animation: pulse 1s infinite; }
+  @keyframes tileShake {
+    0%,100% { transform: translate(0,0) rotate(0); }
+    25% { transform: translate(1px,0) rotate(.6deg); }
+    75% { transform: translate(-1px,0) rotate(-.6deg); }
+  }
+  @keyframes pulse { 50% { opacity: .4; } }
+  .dchip {
+    position: absolute; top: -12px; left: 50%;
+    font-family: var(--font-stamp); font-size: 15px; letter-spacing: .04em;
+    background: var(--yellow); color: var(--ink);
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 0 7px 1px; z-index: 6; pointer-events: none;
+    animation: chipUp .95s ease-out forwards;
+  }
+  .dchip.neg { background: var(--red); color: #fff; border-color: var(--red-deep); }
+  @keyframes chipUp {
+    0% { opacity: 0; transform: translate(-50%, 8px); }
+    18% { opacity: 1; transform: translate(-50%, -2px); }
+    100% { opacity: 0; transform: translate(-50%, -26px); }
+  }
+
+  /* ---------- Abreisskalender (jetzt mit echtem Datum) ---------- */
+  .kal { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0 2px; perspective: 400px; }
+  .k-sheet {
+    position: relative; min-width: 92px; text-align: center;
+    background: var(--paper); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.45);
+    padding: 12px 14px 6px;
+  }
+  .k-sheet::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 8px;
+    background: var(--red); border-radius: 7px 7px 0 0;
+    transition: background .3s;
+  }
+  .k-sheet.rally::before { background: var(--yellow); }
+  .k-top { display: block; font-size: 8px; letter-spacing: .3em; text-transform: uppercase; font-weight: 800; color: var(--ink-soft); }
+  .k-num { display: block; font-family: var(--font-stamp); font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .k-sheet.flip { animation: kalFlip .4s ease-out; }
+  @keyframes kalFlip { from { transform: rotateX(75deg); opacity: .2; } to { transform: none; opacity: 1; } }
+  .k-sub { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: rgba(242,237,224,.5); font-variant-numeric: tabular-nums; }
+  .k-sub .rally { color: var(--yellow); font-weight: 800; }
+
+  /* ---------- Card stage ---------- */
+  .stage { flex: 1; position: relative; margin: 6px 2px; min-height: 0; }
+  .card, .cardback {
+    position: absolute; inset: 0; margin: auto;
+    max-height: 440px;
+    display: flex; flex-direction: column;
+    border-radius: 16px;
+  }
+  .cardback {
+    background: var(--paper-dim);
+    border: 3px solid var(--ink);
+    transform: scale(.94) translateY(16px) rotate(2deg);
+    box-shadow: 6px 6px 0 rgba(0,0,0,.35);
+    align-items: center; justify-content: center;
+    animation: backFloat 4s ease-in-out infinite alternate;
+  }
+  @keyframes backFloat {
+    from { transform: scale(.94) translateY(16px) rotate(2deg); }
+    to { transform: scale(.94) translateY(12px) rotate(1.2deg); }
+  }
+  .cardback .stamp {
+    font-size: 36px; opacity: .12; border-width: 4px;
+    color: var(--ink); border-color: var(--ink); transform: rotate(-14deg);
+  }
+  .card {
+    background:
+      repeating-linear-gradient(0deg, transparent 0 27px, rgba(21,24,29,.05) 27px 28px),
+      var(--paper);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    box-shadow: 10px 10px 0 rgba(0,0,0,.45);
+    padding: 14px 16px 12px;
+    touch-action: none; cursor: grab;
+    will-change: transform;
+  }
+  .card:active { cursor: grabbing; }
+  .card .watermark {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .card .watermark i {
+    font-family: var(--font-stamp); font-style: normal; text-transform: uppercase;
+    font-size: 44px; letter-spacing: .26em; color: rgba(21,24,29,.045);
+    transform: rotate(-24deg); white-space: nowrap;
+  }
+  .card .eilt {
+    position: absolute; top: 40px; right: 12px;
+    font-family: var(--font-stamp); text-transform: uppercase;
+    font-size: 14px; letter-spacing: .08em;
+    color: var(--red); border: 3px solid var(--red); border-radius: 6px;
+    padding: 0 8px 2px; transform: rotate(7deg); opacity: .9;
+    -webkit-mask-image: radial-gradient(circle at 60% 40%, #000 94%, transparent 100%);
+  }
+  /* Kontext als Akten-Reiter: voller gelber Betreff-Block direkt über der Pointe */
+  .card-top { display: flex; justify-content: flex-end; }
+  .ctx {
+    align-self: stretch;
+    background: var(--yellow);
+    border: 2.5px solid var(--ink); border-radius: 8px;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.25);
+    padding: 7px 12px 8px;
+    display: flex; flex-direction: column; gap: 1px;
+    transform: rotate(-.8deg);
+  }
+  .ctx-label {
+    font-size: 8.5px; font-weight: 800; letter-spacing: .22em;
+    text-transform: uppercase; opacity: .55;
+  }
+  .who {
+    font-size: 16px; font-weight: 800; letter-spacing: .05em;
+    text-transform: uppercase; line-height: 1.15;
+  }
+  .scene {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .12em;
+    text-transform: uppercase; opacity: .7;
+  }
+  .vorgang-tab {
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-soft); white-space: nowrap; padding-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Karte: großes Zitat oben, trockener Kommentar klar getrennt darunter */
+  .card .body {
+    flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px;
+    padding: 10px 2px 8px; min-height: 0;
+  }
+  .card .body .quote {
+    margin: 0;
+    font-family: var(--font-card); font-size: 21.5px; line-height: 1.4;
+    text-wrap: balance;
+  }
+  .card .body .note {
+    margin: 0;
+    font-family: var(--font-card); font-style: italic;
+    font-size: 14.5px; line-height: 1.5; color: var(--ink-soft);
+    border-left: 3px solid var(--yellow); padding-left: 10px;
+  }
+  .card .perfo {
+    border-top: 2px dashed rgba(21,24,29,.3);
+    padding-top: 7px;
+    display: flex; justify-content: space-between;
+    font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-soft);
+  }
+  .verdict {
+    position: absolute; top: 46px;
+    font-family: var(--font-stamp); text-transform: uppercase;
+    font-size: 30px; letter-spacing: .04em; line-height: 1.1;
+    border: 5px solid; border-radius: 10px; padding: 3px 12px 5px;
+    background: rgba(250,247,239,.92);
+    max-width: 74%;
+    opacity: 0; pointer-events: none;
+  }
+  .verdict.L { left: 10px; transform: rotate(-11deg); color: var(--ink); border-color: var(--ink); }
+  .verdict.R { right: 10px; transform: rotate(11deg); color: var(--red); border-color: var(--red); }
+
+  /* Farbflut beim Ziehen */
+  #game { transition: background .25s; }
+  #game.tintL { background: radial-gradient(120% 100% at 12% 55%, rgba(90,140,190,.17), transparent 60%); }
+  #game.tintR { background: radial-gradient(120% 100% at 88% 55%, rgba(226,59,46,.2), transparent 60%); }
+
+  /* ---------- Choices: Stempelwort groß, Details klein ---------- */
+  .choices { display: flex; gap: 10px; padding: 4px 2px 8px; }
+  .choices button {
+    all: unset; flex: 1; text-align: center; cursor: pointer;
+    background: var(--paper); color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 14px;
+    box-shadow: 5px 5px 0 rgba(0,0,0,.5);
+    padding: 10px 12px 11px; min-height: 56px;
+    transition: transform .08s, box-shadow .08s, background .12s;
+  }
+  .choices button .bst {
+    display: block;
+    font-family: var(--font-stamp); font-size: 17px; letter-spacing: .06em;
+    text-transform: uppercase; line-height: 1.1;
+  }
+  .choices button .bt {
+    display: block;
+    font-size: 10.5px; font-weight: 600; line-height: 1.3;
+    color: var(--ink-soft); margin-top: 3px;
+  }
+  .choices button.hot, .choices button:active {
+    background: var(--yellow);
+    transform: translate(3px,3px); box-shadow: 2px 2px 0 rgba(0,0,0,.5);
+  }
+  .choices button:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+  .hint-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; padding: 0 2px 4px;
+  }
+  .hint {
+    text-align: center; font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+    color: rgba(242,237,224,.4);
+  }
+  .hint .ar { display: inline-block; font-style: normal; }
+  .hint .ar.l { animation: nudgeL 1.3s ease-in-out infinite; }
+  .hint .ar.r { animation: nudgeR 1.3s ease-in-out infinite; }
+  @keyframes nudgeL { 50% { transform: translateX(-4px); } }
+  @keyframes nudgeR { 50% { transform: translateX(4px); } }
+
+  /* ---------- Toast: Konsequenz-Zettel ---------- */
+  .toast {
+    position: absolute; left: 8px; right: 8px; bottom: 132px;
+    display: flex; justify-content: center; pointer-events: none;
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .25s, transform .25s;
+    z-index: 20;
+  }
+  .toast.on { opacity: 1; transform: none; }
+  .toast .note {
+    background: var(--paper); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.5);
+    padding: 8px 14px; max-width: 340px; text-align: center;
+    transform: rotate(-1.2deg);
+  }
+  .toast .note.vermerk { border-color: var(--red); }
+  .toast .main {
+    font-family: var(--font-card); font-style: italic;
+    font-size: 14px; line-height: 1.4;
+  }
+  .toast .sub {
+    margin-top: 3px;
+    font-family: var(--font-stamp); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+
+  /* ---------- Game-over slam ---------- */
+  .slam {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    z-index: 30; pointer-events: none;
+  }
+  .slam.on { display: flex; }
+  .slam .flash {
+    position: absolute; inset: 0;
+    background: radial-gradient(circle, rgba(226,59,46,.4), transparent 70%);
+    opacity: 0;
+  }
+  .slam.on .flash { animation: flashA .55s ease-out both; }
+  @keyframes flashA { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+  .slam .splat {
+    position: absolute; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--red); opacity: 0;
+    box-shadow:
+      44px -62px 0 5px rgba(226,59,46,.9),
+      -68px 34px 0 4px rgba(226,59,46,.8),
+      86px 30px 0 3px rgba(226,59,46,.75),
+      -38px -78px 0 3px rgba(226,59,46,.7),
+      -104px -20px 0 5px rgba(226,59,46,.65),
+      104px -24px 0 4px rgba(142,31,22,.8),
+      18px 88px 0 4px rgba(142,31,22,.75),
+      -80px 78px 0 3px rgba(142,31,22,.7),
+      60px 66px 0 2px rgba(226,59,46,.8),
+      -20px 60px 0 2px rgba(226,59,46,.6);
+  }
+  .slam.on .splat { animation: splatA .5s .08s cubic-bezier(.2,.9,.4,1.2) both; }
+  @keyframes splatA {
+    0% { transform: scale(.15); opacity: 0; }
+    55% { opacity: 1; }
+    100% { transform: scale(1); opacity: .95; }
+  }
+  .slam .stamp {
+    font-size: clamp(52px, 17vw, 72px);
+    border-width: 7px;
+    background: rgba(250,247,239,.12);
+    backdrop-filter: blur(1.5px);
+  }
+  @keyframes slamIn {
+    0% { transform: rotate(-6deg) scale(2.6); opacity: 0; }
+    55% { transform: rotate(-6deg) scale(.92); opacity: 1; }
+    100% { transform: rotate(-6deg) scale(1); opacity: .97; }
+  }
+  .slam.on .stamp { animation: slamIn .4s cubic-bezier(.2,.9,.3,1.4) both; }
+  @keyframes shake {
+    0%,100% { transform: translate(0,0); }
+    20% { transform: translate(6px,-4px) rotate(.4deg); }
+    45% { transform: translate(-6px,4px) rotate(-.4deg); }
+    70% { transform: translate(4px,2px); }
+    90% { transform: translate(-3px,-2px); }
+  }
+  .shaking { animation: shake .35s linear .1s; }
+
+  /* ---------- End screen: Dienstzeugnis ---------- */
+  #end { justify-content: center; padding-left: 12px; padding-right: 12px; }
+  .end-paper {
+    background:
+      repeating-linear-gradient(0deg, transparent 0 27px, rgba(21,24,29,.045) 27px 28px),
+      var(--paper);
+    color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 16px;
+    box-shadow: 10px 10px 0 rgba(0,0,0,.45);
+    padding: 18px 20px 14px;
+    display: flex; flex-direction: column; gap: 12px;
+    max-height: 100%; overflow-y: auto;
+  }
+  .form-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-soft);
+    border-bottom: 2px solid rgba(21,24,29,.2);
+    padding-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .end-stamp { text-align: center; padding: 4px 0 0; }
+  .end-stamp .stamp { font-size: clamp(38px, 12vw, 50px); border-width: 5px; }
+  .end-cause { font-family: var(--font-card); font-size: 15px; line-height: 1.55; text-align: center; margin: 0 4px; }
+  .arch { text-align: center; border-top: 2px dashed rgba(21,24,29,.25); padding-top: 12px; }
+  .arch small { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 800; color: var(--ink-soft); }
+  .arch .whoLine { font-family: var(--font-card); font-style: italic; font-size: 17px; margin: 5px 0 2px; }
+  .arch h2 { font-family: var(--font-card); font-size: 26px; margin: 2px 0 4px; }
+  .arch p { font-family: var(--font-card); font-style: italic; font-size: 14px; color: var(--ink-soft); margin: 0; }
+  .end-stats {
+    display: flex; justify-content: center; gap: 18px;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700;
+    color: var(--ink-soft); font-variant-numeric: tabular-nums;
+  }
+  .end-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 2px 4px; }
+  .end-bars .eb {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    border: 2px solid var(--ink); border-radius: 10px; padding: 7px 5px;
+    background: rgba(255,255,255,.5);
+  }
+  .end-bars .eb i { font-style: normal; line-height: 1; display: flex; }
+  .end-bars .eb i svg { width: 18px; height: 18px; }
+  .end-bars .ebt { width: 100%; height: 7px; border-radius: 4px; background: rgba(21,24,29,.15); overflow: hidden; }
+  .end-bars .ebf { height: 100%; background: var(--ink); border-radius: 4px; }
+  .end-bars .eb.dead { border-color: var(--red); }
+  .end-bars .eb.dead .ebf { background: var(--red); }
+  .collect {
+    text-align: center; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    font-weight: 800; color: var(--ink-soft);
+  }
+  .collect b { color: var(--red); }
+  .end-btns { display: flex; gap: 10px; margin-top: 2px; }
+  .end-btns button {
+    all: unset; flex: 1; text-align: center; cursor: pointer;
+    border-radius: 12px; padding: 13px 10px; min-height: 48px;
+    font-size: 14px; font-weight: 800;
+    border: 3px solid var(--ink);
+    transition: transform .08s, box-shadow .08s;
+  }
+  .end-btns .primary { background: var(--yellow); box-shadow: 5px 5px 0 rgba(0,0,0,.35); }
+  .end-btns .ghost { background: transparent; box-shadow: 5px 5px 0 rgba(0,0,0,.2); }
+  .end-btns button:active { transform: translate(3px,3px); box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
+  .end-btns button:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+  .end-note { text-align: center; font-size: 10px; color: var(--ink-soft); line-height: 1.6; border-top: 2px dashed rgba(21,24,29,.25); padding-top: 10px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+  @media (max-height: 640px) {
+    .card .body .quote { font-size: 18px; }
+    .card .body .note { font-size: 13px; }
+    .k-num { font-size: 24px; }
+    .meter .ico { font-size: 18px; }
+    .hero .stamp { font-size: clamp(44px, 15vw, 60px); }
+  }
+
+  /* ---------- Rueckweg ins CRM ----------
+     Das Spiel laeuft im CRM, nicht daneben. Ein sichtbarer Weg zurueck sagt
+     das auch dann, wenn jemand mitten in einer Runde aussteigen will - der
+     Zurueck-Knopf des Browsers taete es zwar, aber niemand sucht ihn in einem
+     Vollbild-Spiel. Ueber allem ausser dem Game-over-Slam (z-index 30). */
+  .heimweg {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: max(8px, env(safe-area-inset-left));
+    z-index: 40;
+    display: flex; align-items: center; gap: 5px;
+    background: var(--paper); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 9px;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.45);
+    padding: 5px 10px 6px;
+    font-family: var(--font-ui); font-size: 11px; font-weight: 700;
+    letter-spacing: .04em; text-decoration: none;
+    opacity: .82;
+  }
+  .heimweg:hover { opacity: 1; }
+  .heimweg:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 rgba(0,0,0,.45); }
+  .heimweg:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<a class="heimweg" href="/spiel">← CRM</a>
+<div id="storno">
+  <div class="frame">
+
+    <!-- INTRO -->
+    <section class="screen on" id="intro">
+      <div class="form-line">Formular K-2026 · Vertriebsgruppe Nord</div>
+      <div class="hero">
+        <span class="stamp">Storno</span>
+        <div class="intro-sub">Überlebe den schönsten Job der Welt.</div>
+      </div>
+      <div class="chips" id="legendIcons"></div>
+      <p class="intro-rules">
+        Ein Jahr Außendienst. Wische Karten nach links oder rechts.<br>
+        Punkte an den Werten zeigen die Wirkung: <b>Gelb</b> hilft, <b class="warn">Rot</b> kostet.<br>
+        <b class="warn">Läuft ein Wert aus dem Ruder, ist Feierabend. Für immer.</b>
+      </p>
+      <div class="record" id="record"></div>
+      <div class="sig">
+        <input id="nameInput" type="text" maxlength="40" autocomplete="name" placeholder="Vor- und Nachname" aria-label="Dein Name">
+        <small>Hier unterschreiben</small>
+      </div>
+      <button class="btn-big" id="startBtn">
+        ✗ Dienst antreten
+        <small>und Karriere starten</small>
+      </button>
+      <div class="intro-foot">Prototyp v0.3 · Ähnlichkeiten mit echten Direktionen sind reiner Zufall. Natürlich.</div>
+    </section>
+
+    <!-- GAME -->
+    <section class="screen" id="game">
+      <div class="hud" id="hud"></div>
+      <div class="kal">
+        <div class="k-sheet" id="kalSheet">
+          <span class="k-top" id="kTop">Januar</span>
+          <span class="k-num" id="dayNum">1.</span>
+        </div>
+        <span class="k-sub" id="vorgang">Vorgang 1/24</span>
+      </div>
+      <div class="stage" id="stage">
+        <div class="cardback"><span class="stamp">Storno</span></div>
+      </div>
+      <div class="toast" id="toast" aria-live="polite">
+        <div class="note" id="toastNote"><div class="main" id="toastMain"></div><div class="sub" id="toastSub"></div></div>
+      </div>
+      <div class="choices">
+        <button id="btnL"></button>
+        <button id="btnR"></button>
+      </div>
+      <div class="hint-row">
+        <div class="hint"><i class="ar l">←</i>&nbsp; wischen oder tippen · halten zeigt die wirkung &nbsp;<i class="ar r">→</i></div>
+        <button id="muteBtn" aria-label="Ton an oder aus">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
+            <path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z"/>
+            <path class="wav" d="M15.5 9a4.4 4.4 0 0 1 0 6"/>
+            <path class="mut" d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>
+          </svg>
+        </button>
+      </div>
+      <div class="slam" id="slam">
+        <div class="flash"></div>
+        <div class="splat"></div>
+        <span class="stamp" id="slamText">Storno</span>
+      </div>
+    </section>
+
+    <!-- END -->
+    <section class="screen" id="end">
+      <div class="end-paper">
+        <div class="form-head"><span>Abschlussbescheid</span><span id="endNo">K-2026/–</span></div>
+        <div class="end-stamp"><span class="stamp" id="endStamp">Storno</span></div>
+        <p class="end-cause" id="endCause"></p>
+        <div class="arch">
+          <small>Vertriebsprofil von</small>
+          <div class="whoLine" id="archWho"></div>
+          <h2 id="archName"></h2>
+          <p id="archSub"></p>
+        </div>
+        <div class="end-stats"><span id="statDate"></span><span id="statTurns"></span></div>
+        <div class="end-bars" id="endBars"></div>
+        <div class="collect" id="collect"></div>
+        <div class="end-btns">
+          <button class="primary" id="againBtn">Nochmal von vorn</button>
+          <button class="ghost" id="shareBtn">Teilen</button>
+        </div>
+        <div class="end-note">Prototyp · Bald: Tages-Challenge für alle, Duell-Link und die echte Rangliste.</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script type="module">
+import { replayTutorial } from "./storno-tutorial.js";
+(function () {
+  "use strict";
+  var tutorialMode = new URLSearchParams(location.search).get("mode") === "onboarding";
+  var tutorialInstance = new URLSearchParams(location.search).get("instance");
+  function tutorialSend(type, data) {
+    if (tutorialMode && window.parent !== window) window.parent.postMessage(Object.assign({ type: "storno:" + type, instance: tutorialInstance }, data || {}), location.origin);
+  }
+
+  /* ---------- Werte (stilisierte Linien-Icons, kein Emoji) ---------- */
+  var IC = {
+    p: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.2"/><path d="M14.6 9.4a3.4 3.4 0 1 0 0 5.2M8.6 11h4M8.6 13h4"/></svg>',
+    z: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.4V12l3.2 2.2"/></svg>',
+    f: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19.5S4.4 14.7 4.4 9.9A4 4 0 0 1 12 8a4 4 0 0 1 7.6 1.9c0 4.8-7.6 9.6-7.6 9.6Z"/></svg>',
+    s: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 7.5l5 5 3-3 7 7"/><path d="M19.5 12.5v4h-4"/></svg>'
+  };
+  var KEYS = ["p", "z", "f", "s"];
+  var NAMES = { p: "Provision", z: "Zeit", f: "Familie", s: "Storno" };
+
+  /* ---------- Cards ----------
+     who = "Wer · Szene", txt = Zitat/Situation (groß), sub = trockener Kommentar (klein),
+     t = Button-Text, st = Stempelwort, fx = Wirkung, out = Konsequenz-Zeile.
+     season = grober Monat (1-12) für die Jahres-Dramaturgie. */
+  var CARDS = [
+    { id: "krause", who: "Herr Krause · Bestandskunde",
+      txt: "»Samstag, 19 Uhr. Sonst wird das dieses Jahr nichts mehr.«",
+      sub: "Samstag ist der Geburtstag deiner Tochter.",
+      L: { t: "Absagen", st: "Absagen", fx: { p: -10, f: 15 },
+           out: "Krause storniert aus Prinzip. Dafür hast du alle acht Kerzen gesehen." },
+      R: { t: "Hinfahren", st: "Hinfahren", fx: { p: 15, f: -20 },
+           out: "Unterschrift um 21:40. Die Kerzen waren aus. Das Kind auch." } },
+    { id: "mail", who: "Neukunde · am Telefon",
+      txt: "»Klingt super. Schicken Sie mir erstmal was per Mail.«",
+      sub: "Du hörst förmlich, wie der Termin stirbt.",
+      L: { t: "Mail schicken. Nie wieder von ihm hören", st: "Mail", fx: { p: -15, z: 5 },
+           out: "Die Mail wohnt jetzt ungeöffnet zwischen zwei Newslettern. Für immer." },
+      R: { t: "»Ich bin morgen eh in Ihrer Straße.« Bist du nicht.", st: "Bin eh da", fx: { p: 10, z: -15 },
+           out: "Du warst »zufällig« da. Der Termin steht. Dein Kalender weint leise." } },
+    { id: "abende", who: "Deine Frau · 21:50 Uhr",
+      txt: "»Vierter Abend diese Woche. Die Kinder haben gefragt, wer der Mann am Frühstückstisch war.«",
+      sub: "",
+      L: { t: "»Das Wochenende gehört euch«", st: "Wochenende", fx: { f: 20, p: -10 },
+           out: "Samstag Zoo, Sonntag Pfannkuchen. Montag kennt dein Sohn deinen Namen wieder." },
+      R: { t: "»Der Dezember zahlt unseren Urlaub«", st: "Dezember", fx: { f: -15, p: 10 },
+           out: "Der Urlaub ist gebucht. Gefahren wird er später. Geschwiegen wird jetzt schon." } },
+    { id: "kueche", who: "Ehepaar · Küchentisch",
+      txt: "»Da muss ich erst mit meiner Frau drüber sprechen.«",
+      sub: "Seine Frau sitzt direkt daneben.",
+      L: { t: "»Klar.« Übersetzung: nie wieder", st: "Klar.", fx: { p: -5, z: -10 },
+           out: "Er wollte nie wieder anrufen. Er hält Wort." },
+      R: { t: "»Holen wir sie doch kurz dazu«", st: "Dazuholen", fx: { p: 15, s: 10 },
+           out: "Sie stellt drei Fragen und unterschreibt selbst. Er schmollt in die Kaffeetasse." } },
+    { id: "portal", who: "Neukunde · 24 Jahre",
+      txt: "»Im Internet ist das 30 Euro billiger.«",
+      sub: "Der Online-Tarif deckt nichts. Nicht mal ihn.",
+      L: { t: "Alle 14 Lücken zeigen. Einzeln.", st: "Aufklären", fx: { p: 10, z: -15 },
+           out: "Bei Lücke neun wird er blass. Bei zwölf unterschreibt er. Feierabend um neun." },
+      R: { t: "»Dann klicken Sie. Wir sehen uns im Schadenfall.«", st: "Ziehen lassen", fx: { p: -10, f: 5, s: -10 },
+           out: "Er klickt. Sein Kreuzband weiß es noch nicht." } },
+    { id: "schwager", who: "Herr Meier · Neukunde",
+      txt: "»Mein Schwager meint, das wär nix.«",
+      sub: "Der Schwager hat drei Privatinsolvenzen und eine Meinung.",
+      L: { t: "Termin zu dritt, mit Schwager", st: "Zu dritt", fx: { p: 5, z: -15, s: -15 },
+           out: "Der Schwager redet 90 Minuten. Meier unterschreibt. Aus Trotz gegen den Schwager." },
+      R: { t: "»Ihr Schwager verkauft Küchen, Herr Meier«", st: "Kontern", fx: { s: 15, f: 5 },
+           out: "Meier lacht laut. Unterschrieben hat er später trotzdem beim Schwager." } },
+    { id: "kfz", who: "Dein Schreibtisch · 30. November, 23:12 Uhr", season: 11,
+      txt: "Kfz-Saison. 34 Mails offen.",
+      sub: "Dein Herz macht Geräusche, die du dem Hausarzt verschweigst.",
+      L: { t: "Schlafen. Ein radikaler Akt.", st: "Schlafen", fx: { p: -15, f: 10, z: 10 },
+           out: "Acht Stunden Schlaf. Die 34 Mails haben sich nicht vermehrt. Doch: 41." },
+      R: { t: "Durchziehen. Schlaf ist für Angestellte.", st: "Durchziehen", fx: { p: 20, z: -20, f: -10 },
+           out: "Um 3:12 ist der Posteingang leer und dein Puls dreistellig." } },
+    { id: "auftritt", who: "Deine Tochter",
+      txt: "»Papa, kommst du Donnerstag zu meinem Auftritt?«",
+      sub: "Sie fragt im Ton von jemandem, der die Antwort schon kennt.",
+      L: { t: "»Ich bin da. Versprochen.«", st: "Versprochen", fx: { f: 15, p: -10 },
+           out: "Zweite Reihe, Handy aus. Beim dritten Ton sucht sie dich. Und findet dich." },
+      R: { t: "»Ich versuch es, Schatz.« Ihr wisst beide, was das heißt.", st: "Mal sehen", fx: { f: -15, z: 5 },
+           out: "Du hast es versucht. Der Kunde brauchte länger. Das Video schickt dir deine Frau. Kommentarlos." } },
+    { id: "bd", who: "Dein Strukki · Montagsrunde",
+      txt: "»Schöne Zahlen.« Pause. »Für einen Teilzeitler.«",
+      sub: "",
+      L: { t: "Nicken, Kaffee trinken", st: "Nicken", fx: { p: 5, z: -5 },
+           out: "Der Kaffee schmeckt nach Hierarchie. Du schluckst beides." },
+      R: { t: "»Meine Stornoquote ist die beste im Haus«", st: "Kontern", fx: { s: -10, p: -5 },
+           out: "Stille in der Runde. Der Strukki notiert deinen Namen. Nicht für den Newsletter." } },
+    { id: "idd", who: "Pflicht-Webinar · 14:03 Uhr",
+      txt: "Noch elf IDD-Stunden. Das Webinar heißt »Den Kunden neu denken«.",
+      sub: "Der Referent liest Folien vor.",
+      L: { t: "Laufen lassen. Mikro aus. Leben an.", st: "Mikro aus", fx: { z: 5, s: 5 },
+           out: "Zertifikat erhalten. Gelernt: nichts. Gelebt: zwei Stunden." },
+      R: { t: "Ernsthaft mitmachen. Irgendwer muss ja.", st: "Mitmachen", fx: { z: -15, s: -5 },
+           out: "Du stellst die einzige Frage im Chat. Der Referent liest die Antwort vor. Von der Folie." } },
+    { id: "empf", who: "Frau Sommer · zufriedene Kundin",
+      txt: "»Meine Nachbarin bräuchte auch jemanden.«",
+      sub: "Dein Empfehlungsreflex feuert, bevor dein Anstand wach ist.",
+      L: { t: "»Name? Nummer? Wann ist sie zu Hause?«", st: "Zugreifen", fx: { p: 15, z: -5 },
+           out: "Die Nachbarin hat »zufällig« schon Kaffee gekocht. Frau Sommer hat vorgearbeitet." },
+      R: { t: "Zwei Karten dalassen, wie ein Gentleman", st: "Gentleman", fx: { p: -5, z: 5 },
+           out: "Die Karten leben jetzt unterm Kühlschrankmagneten. Es ist ein gutes Zuhause." } },
+    { id: "stornopost", who: "Post von der Direktion", urgent: true,
+      txt: "Drei Stornos. Rückforderung: 2.840 Euro.",
+      sub: "Das Geld ist selbstverständlich längst ausgegeben.",
+      L: { t: "Alle drei anrufen und retten", st: "Retten", fx: { z: -15, s: -15 },
+           out: "Zwei gerettet, einer war längst bei der Konkurrenz. Quote gerettet, Abend weg." },
+      R: { t: "Abhaken. Das Hamsterrad ölt sich nicht selbst.", st: "Abhaken", fx: { p: 5, s: 10 },
+           out: "2.840 Euro. Der Dispo nennt dich inzwischen beim Vornamen." } },
+    { id: "gruppe", who: "WhatsApp »Vertrieb Süd 🔥« · Sonntag, 21:40 Uhr",
+      txt: "34 neue Nachrichten. Ein Motivationsvideo vom Strukki.",
+      sub: "Er zitiert Rocky. Wieder.",
+      L: { t: "Stumm bis Montag", st: "Stumm", fx: { f: 10 },
+           out: "Montag: 214 Nachrichten. Du scrollst hoch und gibst bei Nummer 90 auf." },
+      R: { t: "Mit 🔥 reagieren", st: "🔥", fx: { p: 5, z: -5 },
+           out: "Der Strukki antwortet mit 💪. Ihr habt jetzt eine Beziehung." } },
+    { id: "azubi", who: "Dein Azubi · blass",
+      txt: "»Ich hab die Bruttoprämie als netto genannt.«",
+      sub: "Der Kunde hat schon unterschrieben. Der Azubi schon geweint.",
+      L: { t: "Geradebiegen. Du warst auch mal so.", st: "Helfen", fx: { z: -10, s: -10 },
+           out: "Der Kunde bleibt. Der Azubi erzählt es allen. Du hast jetzt einen Fanclub." },
+      R: { t: "»Das klärst du selbst. Willkommen im Vertrieb.«", st: "Allein", fx: { z: 5, s: 10 },
+           out: "Er klärt es. Mit zwei Kündigungen: der des Kunden und seiner eigenen." } },
+    { id: "liste", who: "Telefonliste · Dienstag, 18:40 Uhr",
+      txt: "Sechsmal »kein Interesse«, einmal »ich verklage Sie«, einmal Faxton.",
+      sub: "Nummer neun wartet.",
+      L: { t: "Feierabend", st: "Feierabend", fx: { f: 10, p: -10 },
+           out: "Nummer neun hätte gekauft. Das erfährst du nie. Gut so." },
+      R: { t: "Weiterwählen. Schmerz ist Wachstum.", st: "Weiter", fx: { p: 15, z: -10 },
+           out: "Nummer neun: Termin. Nummer zehn: wieder Faxton. Die Welt bleibt gerecht." } },
+    { id: "kuend", who: "Bestandskunde · seit 8 Jahren",
+      txt: "Ein YouTube-Spot später will er kündigen.",
+      sub: "Loyalität ist ein Zeitfenster.",
+      L: { t: "Rückholtermin. Würde runterschlucken.", st: "Zurückholen", fx: { p: 5, z: -10, s: -10 },
+           out: "Er bleibt. Du hast dreimal »völlig verständlich« gesagt. Es war nie verständlich." },
+      R: { t: "Durchwinken. Er kommt zurück. Teurer.", st: "Winken", fx: { s: 15, z: 5 },
+           out: "Drei Monate später: Sein neuer Tarif deckt den Wasserschaden nicht. Deiner hätte." } },
+    { id: "cabrio", who: "Instagram · 22:15 Uhr",
+      txt: "Ein Kollege postet sein Leasing-Cabrio: »Harte Arbeit zahlt sich aus.«",
+      sub: "Seine Stornoquote ist Legende.",
+      L: { t: "Weiterscrollen", st: "Scrollen", fx: { f: 5 },
+           out: "Zwei Wochen später steht das Cabrio bei mobile.de. »Preis VB.«" },
+      R: { t: "Kommentieren: »Stornoreserve schon eingerechnet?«", st: "Kommentar", fx: { p: -5, f: 5 },
+           out: "Er löscht den Kommentar. Beim Jahresauftakt setzt er sich woanders hin. Es war es wert." } },
+    { id: "buehne", who: "Jahresauftakt · große Bühne", season: 1,
+      txt: "Nebelmaschine. Dein Name fällt.",
+      sub: "Der Applaus kommt von Leuten, die deine Zahlen gern hätten.",
+      L: { t: "Bescheiden winken", st: "Winken", fx: { f: 5, z: 5 },
+           out: "Backstage fragt der Strukki, ob du krank bist. Bescheidenheit gilt hier als Symptom." },
+      R: { t: "Pokal küssen, Story posten", st: "Posten", fx: { p: 10, f: -5 },
+           out: "Die Story bekommt 340 Views. Zwei davon: deine Frau. Reaktion: keine." } },
+    { id: "gleich", who: "Neukunde · verschränkte Arme",
+      txt: "»Ihr seid doch alle gleich.«",
+      sub: "Sein letzter Berater war sein Cousin. Der ist jetzt in Dubai.",
+      L: { t: "»Dann vergleichen Sie mich mal.«", st: "Antreten", fx: { p: 10, z: -10 },
+           out: "Nach 40 Minuten entschränkt er die Arme. Nach 70 unterschreibt er. Cousin-Niveau: übertroffen." },
+      R: { t: "Lächeln, gehen, im Auto kurz schreien", st: "Gehen", fx: { p: -5, z: 5 },
+           out: "Du schreist drei Sekunden. Vom Fenster aus winkt er dir freundlich zu." } },
+    { id: "seite7", who: "Antragswesen · Freitag, 16:50 Uhr",
+      txt: "Auf drei Anträgen fehlt die Unterschrift auf Seite sieben.",
+      sub: "Das Antragswesen kennt keine Gnade. Und kein Wochenende.",
+      L: { t: "Montag. Das Risiko macht ja wohl auch mal Pause.", st: "Montag", fx: { z: 10, s: 10 },
+           out: "Montag, 8:01: Einer der drei hatte am Sonntag einen Fahrradunfall. Du sagst es niemandem." },
+      R: { t: "Freitagabend Unterschriften-Tour. Rock'n'Roll.", st: "Tour", fx: { z: -15, s: -10 },
+           out: "22:30, dritte Unterschrift. Im Treppenhaus riecht es nach Raclette und fremdem Feierabend." } },
+    { id: "kuli", who: "Abschluss-Moment · beim Kunden",
+      txt: "Er will unterschreiben. JETZT. Dein Kuli ist leer. Der Ersatz auch.",
+      sub: "Das Universum testet dich.",
+      L: { t: "Zum Auto sprinten. Das Momentum stirbt im Treppenhaus.", st: "Sprinten", fx: { z: -10 },
+           out: "Als du zurückkommst, will er »nochmal in Ruhe drüber schlafen«. Der Schlaf gewinnt immer." },
+      R: { t: "Werbekuli der Konkurrenz. Verrat mit Rückgrat.", st: "Fremdkuli", fx: { p: 10, s: 5 },
+           out: "Er unterschreibt mit dem Kuli der Konkurrenz. Du behältst ihn. Kriegsbeute." } },
+    { id: "bienenstich", who: "Frau Höfer · 87 · Bestandskundin",
+      txt: "Minute 90. Der Bienenstich ist selbstgebacken. Ihr Sohn ruft nie an.",
+      sub: "Du bist jetzt Familie. Mit Provisionsanspruch.",
+      L: { t: "Sanft zum Geschäftlichen kommen", st: "Geschäft", fx: { p: 10, z: -5 },
+           out: "Police besprochen, Dose mitbekommen. Sie winkt vom Fenster, bis du abgebogen bist." },
+      R: { t: "Noch ein Stück. Man ist ja kein Monster", st: "Kuchen", fx: { f: 5, z: -10, s: -5 },
+           out: "Minute 140. Du kennst jetzt den Sohn, die Hüfte und den Krieg. Police: nächstes Mal. Bestimmt." } },
+    { id: "sprachnb", who: "Dein Strukki · Sprachnachricht",
+      txt: "11:47 Minuten.",
+      sub: "Beginnt mit »ganz kurz« und endet mit einem Napoleon-Zitat.",
+      L: { t: "Auf 2x. Napoleon klingt wie ein Chipmunk.", st: "2x", fx: { z: -5, p: 5 },
+           out: "Chipmunk-Napoleon: »Auch du trägst einen Marschallstab im Tornister.« Sechs Minuten deines Lebens." },
+      R: { t: "Auf gelesen setzen. Russisches Roulette.", st: "Gelesen", fx: { z: 10, s: 5 },
+           out: "Er sieht die Häkchen. Montagsrunde: »Manche halten Kommunikation wohl für optional.«" } },
+    { id: "onkel", who: "Onkel Jürgen · Familienfeier",
+      txt: "»Na, verkaufst du immer noch diese Versicherungen?«",
+      sub: "Er fragt das seit sechs Jahren. Er ist bei dir versichert.",
+      L: { t: "Lächeln. Thema wechseln", st: "Lächeln", fx: { f: 5 },
+           out: "Er erzählt vom Camper. Du isst Kartoffelsalat und denkst an seine Beitragsrückstände." },
+      R: { t: "Ihm direkt mal seine Rentenlücke ausrechnen", st: "Vorrechnen", fx: { p: 5, f: -10 },
+           out: "1.240 Euro Lücke, live am Handy. Jürgen lacht nicht mehr. Tante Heike holt Nachschlag." } },
+    { id: "hund", who: "Familie Berger · am Gartentor",
+      txt: "Der Schäferhund heißt »Rocky« und hat schon mal einen von der Bausparkasse gebissen.",
+      sub: "Man munkelt: auf Kommando.",
+      L: { t: "Im Auto warten. Feige, aber vollständig.", st: "Warten", fx: { z: -10 },
+           out: "Nach 20 Minuten klopft Frau Berger ans Fenster: »Warum sagen Sie denn nichts?« Rocky grinst." },
+      R: { t: "Leckerli aus dem Handschuhfach. Du kamst vorbereitet.", st: "Leckerli", fx: { p: 10 },
+           out: "Rocky frisst, du klingelst, alle leben. Im Flur hängt ein Foto vom Bausparkassen-Mann. Gerahmt." } },
+    { id: "parkplatz", who: "Innenstadt · 13:52 Uhr",
+      txt: "Der 14-Uhr-Termin entscheidet über deinen Monat. Kein Parkplatz.",
+      sub: "Die Stadt hasst dich persönlich.",
+      L: { t: "Halteverbot. 55 Euro. Berufsrisiko.", st: "Knöllchen", fx: { z: 10, p: -10 },
+           out: "55 Euro. Der Termin bringt das Zwanzigfache. Der Zettel ärgert dich trotzdem noch Wochen." },
+      R: { t: "Parkhaus, rennen, verschwitzt ankommen. Souverän.", st: "Rennen", fx: { z: -10, p: 5 },
+           out: "Du kommst nass an. Der Kunde: »Sportlich!« Ihr lacht. Nur einer meint es." } },
+    { id: "stift", who: "Verkaufstrainer · Rollenspiel",
+      txt: "»Verkaufen Sie mir diesen Stift.«",
+      sub: "Er macht das seit 1987. Der Stift ist älter als du.",
+      L: { t: "Mitspielen. Wie dressiert. Weil dressiert.", st: "Mitspielen", fx: { z: -5, s: -5 },
+           out: "Du verkaufst den Stift in 40 Sekunden. Der Trainer ist beleidigt. Es war sein Stift." },
+      R: { t: "»Ich verkaufe Lösungen.« Der Trainer notiert: schwierig.", st: "Verweigern", fx: { f: 5, p: -5 },
+           out: "»Schwierig« steht jetzt in deiner Akte. Neben den Zahlen, die seine Seminare bezahlen." } },
+    { id: "chatgpt", who: "Neukunde · 31 · Handy in der Hand",
+      txt: "»Ich hab ChatGPT gefragt. Die BU brauch ich nicht.«",
+      sub: "Dieselbe KI hat ihm gestern ein Rücken-Tattoo designt.",
+      L: { t: "Rentenlücke live vorrechnen", st: "Vorrechnen", fx: { p: 10, z: -10 },
+           out: "Die Lücke leuchtet rot. Er unterschreibt und fragt hinterher die KI, ob das gut war. Sie sagt ja." },
+      R: { t: "»Dann soll ChatGPT auch die Miete zahlen.«", st: "Kontern", fx: { p: -5, f: 5 },
+           out: "Er lacht. Kein Abschluss, aber er folgt dir jetzt auf Instagram. Reichweite ist auch Währung. Sagt man." } },
+    { id: "kegel", who: "Deine Schwiegermutter · stolz",
+      txt: "Sie hat dich an den ganzen Kegelclub weiterempfohlen. Neun Termine. Neun Kuchen.",
+      sub: "Alle wollen nur gucken.",
+      L: { t: "Alle neun machen. Zucker ist auch Provision.", st: "Alle neun", fx: { p: 15, z: -15 },
+           out: "Neun Kuchen, vier Abschlüsse, zwei Kilo. Der Kegelclub nennt dich »unser Junge«." },
+      R: { t: "»Mutti. Bitte.«", st: "Bremsen", fx: { f: 5, p: -5 },
+           out: "Sie schweigt zwei Wochen. Dann empfiehlt sie dich dem Kirchenchor. Vierzehn Termine." } },
+    { id: "navi", who: "Landstraße · 19:04 Uhr",
+      txt: "Navi: »Ziel erreicht.« Feldweg. Der Hof liegt »hinterm dritten Silo links«.",
+      sub: "Es gibt vier Silos. Es regnet.",
+      L: { t: "Anrufen und lotsen lassen", st: "Lotsen", fx: { z: -5, p: 5 },
+           out: "»Am dritten Silo, ich winke!« Alle vier Silos sehen gleich aus. Aber ein Arm ragt raus." },
+      R: { t: "Weiterfahren. Die Lederschuhe waren eh abgeschrieben.", st: "Feldweg", fx: { z: -15 },
+           out: "Silo zwei war richtig. Die Schuhe bleiben als Anzahlung im Hof." } },
+    { id: "doppelt", who: "Terminkollision · 17:00 Uhr",
+      txt: "Neukundentermin und Elternabend, beide jetzt. Deine Frau: »Ich geh schon hin.«",
+      sub: "Der Punkt am Satzende wiegt eine Tonne.",
+      L: { t: "Elternabend", st: "Elternabend", fx: { f: 15, p: -10 },
+           out: "Du meldest dich freiwillig für den Kuchenbasar. Deine Frau nimmt deine Hand. Es hat sich gelohnt." },
+      R: { t: "Neukunde. Der Elternabend hat Protokoll", st: "Neukunde", fx: { p: 15, f: -15 },
+           out: "Abschluss um 19:20. Das Protokoll des Elternabends liest sich wie eine Anklageschrift." } },
+    { id: "keksdose", who: "Herr Yilmaz · Küchentisch",
+      txt: "Er will die Jahresprämie bar zahlen. Aus der Keksdose.",
+      sub: "Es riecht nach Vanille und einem langen Gespräch mit der Compliance.",
+      L: { t: "»Nur per Lastschrift, tut mir leid.«", st: "Lastschrift", fx: { s: -5, p: -5 },
+           out: "Herr Yilmaz nickt langsam. Die Dose bleibt zu. Das Vertrauen fast auch." },
+      R: { t: "»Keksdose zählt wie Konto.«", st: "Bargeld", fx: { p: 10, s: 15 },
+           out: "Drei Wochen später will die Compliance »nur kurz sprechen«. Es riecht nicht mehr nach Vanille." } },
+    { id: "leads", who: "Lead-Portal · frische Lieferung",
+      txt: "Lead eins: 0123 456789. Lead zwei: »Max Mustermann«. Lead drei bist du selbst, von 2023.",
+      sub: "Der Kreis schließt sich.",
+      L: { t: "Dich selbst anrufen. Endlich ein qualifizierter Lead.", st: "Rangehen", fx: { z: -10, p: 5 },
+           out: "Du gehst nicht ran. Typisch du, 2023." },
+      R: { t: "Ablage P", st: "Ablage P", fx: { z: 5, p: -5 },
+           out: "Ablage P. Das Portal berechnet trotzdem 45 Euro pro Stück. Qualität hat ihren Preis." } },
+    { id: "karten400", who: "Dein Esstisch · 1. Dezember", season: 12,
+      txt: "400 Weihnachtskarten von Hand. 380 landen ungeöffnet im Altpapier.",
+      sub: "Die anderen 20 sind dein Umsatz von nächstem Jahr.",
+      L: { t: "Von Hand. Jede einzelne", st: "Von Hand", fx: { f: 10, z: -15, s: -5 },
+           out: "Karte 383: »Frohe Weihnachten, Herr Peperoni.« Er rahmt sie ein. Bester Kunde seitdem." },
+      R: { t: "Serienbrief mit Unterschrift-Scan", st: "Serienbrief", fx: { z: 10, s: 5 },
+           out: "Effizient. Frau Höfer erkennt den Scan sofort. Sie sagt nichts. Das ist das Schlimmste." } },
+    { id: "kaffee", who: "Termin drei von fünf",
+      txt: "Dritter Termin, dritter Kaffee. »Noch ein Tässchen?«",
+      sub: "Deine Blase legt Widerspruch ein.",
+      L: { t: "»Sehr gern.«", st: "Tasse vier", fx: { z: -5, s: -5 },
+           out: "Tasse vier. Deine Niere reicht die Kündigung ein. Der Kunde verlängert um zehn Jahre." },
+      R: { t: "»Ich muss leider gleich weiter.«", st: "Flucht", fx: { z: 5, p: -5 },
+           out: "An der Tür fällt ihr noch was ein: Die Tochter bräuchte eine Haftpflicht. Die Blase gewinnt trotzdem." } },
+    { id: "suetterlin", who: "Bestandsübernahme · Keller",
+      txt: "Zwölf Ordner vom Vorgänger, einer in Sütterlin.",
+      sub: "Der Vorgänger ist »plötzlich ausgestiegen«. Niemand sagt, warum.",
+      L: { t: "Wochenende opfern, digitalisieren", st: "Keller", fx: { z: -15, s: -10, f: -5 },
+           out: "Sonntagnacht entzifferst du Ordner neun: Altverträge, von denen nicht mal die Direktion wusste. Gold." },
+      R: { t: "»Das System läuft doch.« Das System ist ein Schuhkarton.", st: "Läuft doch", fx: { z: 5, s: 10 },
+           out: "Im Schuhkarton tickt eine Frist. Du hörst sie nachts. Manchmal." } },
+    { id: "messe", who: "Gewerbemesse · Samstag",
+      txt: "Dein Stand: zwischen Kärcher und Bratwurst.",
+      sub: "Ein Besucher fragt, ob die Kulis umsonst sind. Er nimmt zwölf.",
+      L: { t: "Lächeln. Kulis sind Marketing.", st: "Lächeln", fx: { p: 5, z: -10 },
+           out: "Zwölf Kulis, null Leads. Aber der Bratwurst-Mann kennt jetzt deinen Namen. Netzwerk ist Netzwerk." },
+      R: { t: "Gewinnspiel-Box: Leads gegen Lose", st: "Lose", fx: { p: 10, z: -10, s: 5 },
+           out: "74 Lose, 71 wollten nur den Hauptgewinn. Drei Termine. Einer davon: der Kärcher-Mann." } },
+    { id: "strukki", who: "Instagram-DM · von deinem Kunden",
+      txt: "Ein Finfluencer hat deinem Kunden »ein unschlagbares Angebot« gemacht. 🚀",
+      sub: "Profilbild: gemieteter Lambo.",
+      L: { t: "Gegenrechnung, sachlich", st: "Tabelle", fx: { z: -10, s: -10 },
+           out: "Deine Tabelle hat elf Zeilen und keine Emojis. Der Kunde bleibt. Aus Langeweile, aber er bleibt." },
+      R: { t: "»Fragen Sie ihn mal nach seiner Stornoquote.«", st: "Gegenfrage", fx: { s: -5, f: 5 },
+           out: "Der Kunde fragt tatsächlich nach. Der Finfluencer blockiert ihn. Fall gelöst." } },
+    { id: "karrieretag", who: "Dein Strukki · Karrieretag",
+      txt: "»Bring einfach jemanden mit. Egal wen.«",
+      sub: "»Hauptsache volljährig und Puls.«",
+      L: { t: "Den arbeitslosen Cousin opfern", st: "Cousin", fx: { p: 10, f: -10 },
+           out: "Der Cousin ist begeistert. Er hat jetzt eine Vision und du einen Untermieter im Büro." },
+      R: { t: "»Ich hab niemanden mehr. Alle blockiert.«", st: "Ehrlich", fx: { f: 5, p: -5 },
+           out: "Der Strukki notiert es wortlos. Du stehst jetzt auf einer anderen Liste." } },
+    { id: "mindset", who: "Teammeeting · 8:00 Uhr",
+      txt: "Der Strukki spielt sein Motivationsvideo ab. Selbst gedreht. Im Treppenhaus.",
+      sub: "»WER NICHT BRENNT, HAT NIE GEFUNKT!«",
+      L: { t: "Mitklatschen", st: "Klatschen", fx: { p: 5, z: -5 },
+           out: "Du klatschst im Takt. Irgendwann klatscht es von allein. Das beunruhigt dich erst später." },
+      R: { t: "Innerlich kündigen, äußerlich nicken", st: "Fassade", fx: { f: 5 },
+           out: "Dein Gesicht macht Begeisterung, dein Kopf macht Einkaufsliste. Beide überzeugen." } },
+    { id: "leasing", who: "Autohaus · dein Strukki nickt",
+      txt: "Kontostand: 240 Euro. Dein Strukki: »Erfolg braucht ein Erfolgsauto.«",
+      sub: "Das Angebot liegt schon da.",
+      L: { t: "E-Klasse. Fake it till you make it", st: "E-Klasse", fx: { p: 10, s: 10, f: -5 },
+           out: "Die E-Klasse riecht nach Erfolg und 780 Euro monatlich. Der Kunde parkt daneben. Im Dacia. Er zahlt bar." },
+      R: { t: "Weiter Golf fahren. Mit Würde.", st: "Golf", fx: { f: 5, p: -5 },
+           out: "Der Golf springt an. Wie immer. Der Strukki grüßt seitdem eine Spur kühler. Der Golf ist es egal." } },
+    { id: "freunde", who: "Dein bester Freund · seit der 5. Klasse",
+      txt: "Er hebt nicht mehr ab.",
+      sub: "Seit du ihm »nur mal kurz was zeigen« wolltest.",
+      L: { t: "Auf ein Bier einladen. Ohne Hintergedanken. Wirklich.", st: "Bier", fx: { f: 10, z: -5 },
+           out: "Nach dem zweiten Bier lacht er wieder. Beim Abschied: »Schön, dass du wieder du bist.« Autsch. Und schön." },
+      R: { t: "Akzeptieren. Neue Freunde gibt es im Team.", st: "Team", fx: { f: -10, p: 5 },
+           out: "Das Team-Event hat einen Dresscode und ein Umsatzziel. Dein bester Freund hat jetzt einen neuen Angelpartner." } },
+    { id: "herrk", who: "Herr K. · 94 · topfit",
+      txt: "Er will eine Risikoleben. Laufzeit: 40 Jahre.",
+      sub: "»Man muss positiv denken.«",
+      L: { t: "Ablehnen. Es gibt Grenzen.", st: "Grenze", fx: { s: -5, p: -5 },
+           out: "Herr K. geht enttäuscht zur Konkurrenz. Die nimmt ihn. Mit 94. Du schläfst trotzdem besser." },
+      R: { t: "Der Antrag geht eh nicht durch. Aber die Einheiten zählen.", st: "Einheiten", fx: { p: 10, s: 10 },
+           out: "Der Antrag kommt zurück: abgelehnt. Die Einheiten bleiben. Herr K. lädt dich zum 95. ein." } },
+    { id: "krank", who: "Dein Badezimmerspiegel · 7:10 Uhr", urgent: true,
+      txt: "39,8 Grad Fieber. Drei Termine heute.",
+      sub: "Dein Strukki, damals im Onboarding: »Krank ist eine Entscheidung.«",
+      L: { t: "Absagen. Mensch bleiben.", st: "Mensch", fx: { f: 10, p: -10 },
+           out: "Drei Absagen, dreimal »Gute Besserung«. Einer schickt Hühnersuppe. Es gibt sie noch, die Guten." },
+      R: { t: "Ibuprofen 800 und Anzug an", st: "Ibu 800", fx: { p: 15, z: -15, f: -5 },
+           out: "Zwei Unterschriften, an keine erinnerst du dich. Der dritte Kunde hat dich heimgeschickt." } },
+    { id: "heiligabend", who: "Herr Brandt · 24. Dezember, 18:30 Uhr", wm: "24. Dezember",
+      txt: "Die Bescherung läuft. Dein Handy: »Haben Sie kurz? Ist wichtig.«",
+      sub: "Es ist Herr Brandt. Es ist nie wichtig.",
+      L: { t: "Wegdrücken. Es ist HEILIGABEND.", st: "Wegdrücken", fx: { f: 15, s: 5 },
+           out: "Brandt spricht aufs Band: Es ging um einen Lottogewinn. »Aber egal, dann halt im Januar.«" },
+      R: { t: "Rausgehen. »Natürlich, Herr Brandt.«", st: "Rangehen", fx: { p: 5, f: -20 },
+           out: "40 Minuten Flur. Thema: ob Silvesterraketen versichert sind. Drinnen war Bescherung." } },
+    { id: "abwerbung", who: "Deine Struktur · Montagmorgen", urgent: true,
+      txt: "Dein bester Mann geht zur Konkurrenz. Mit 30 deiner Kunden.",
+      sub: "Du hast ihm alles beigebracht. Auch das.",
+      L: { t: "Anwalt einschalten", st: "Anwalt", fx: { z: -15, p: -5 },
+           out: "Der Anwalt kostet, das Verbot hält halb. Elf Kunden kommen von selbst zurück. Wegen dir." },
+      R: { t: "Kreislauf des Lebens. Weiteratmen.", st: "Atmen", fx: { s: 15, f: 5 },
+           out: "Du atmest. Drei Kunden rufen an: »Der Neue ist komisch.« Der Kreislauf dreht zurück." } },
+    { id: "kampagne", who: "Marketing · Rundmail", season: 12,
+      txt: "Die neue Kampagne: »NUR NOCH BIS 31.12.!«",
+      sub: "Es ist dieselbe wie letztes Jahr. Und vorletztes.",
+      L: { t: "Copy-Paste an den ganzen Bestand", st: "Senden", fx: { p: 10, s: 10 },
+           out: "Vier Antworten: dreimal »bitte austragen«, ein Abschluss. Die Quote nennt man hier »solide«." },
+      R: { t: "Sich kurz schämen. Dann Copy-Paste.", st: "Trotzdem", fx: { p: 10, s: 5 },
+           out: "Das Schämen dauert vier Sekunden. Der Abschluss zahlt vier Wochen Miete. Moral ist verhandelbar." } },
+    { id: "linkedin", who: "LinkedIn · 5:00 Uhr",
+      txt: "Ein Kollege postet: »Während ihr schlaft, telefoniere ich.«",
+      sub: "Mit wem? Es ist fünf Uhr morgens.",
+      L: { t: "Liken. Man weiß ja nie.", st: "Like", fx: { z: -5 },
+           out: "Dein Like ist Nummer 34. Der Algorithmus zeigt dir jetzt nur noch Männer an Flughäfen." },
+      R: { t: "Kommentieren: »Mit wem?«", st: "Mit wem?", fx: { f: 10, p: -5 },
+           out: "Antwort nach zwei Tagen: »Mit meinem Zweitaccount.« Sofort gelöscht. Der Screenshot lebt." } }
+  ];
+
+  var FINALE_ID = "heiligabend";
+
+  var ENDINGS = {
+    p: { word: "Pleite", txt: "Konto nicht gedeckt. Dein Strukki schenkt dir sein Hörbuch: »Erfolg ist eine Entscheidung«. Gelesen von ihm selbst." },
+    z: { word: "Ausgebucht", txt: "Eingeschlafen im Kundentermin. Mitten in deiner eigenen Bedarfsanalyse. Der Kunde hat trotzdem unterschrieben. Aus Mitleid." },
+    f: { word: "Verbrannt", txt: "Deine Frau hat deine Krawatten verbrannt. Alle. Auch die guten von der Incentive-Reise." },
+    s: { word: "Storno", txt: "Die Stornowelle nimmt alles mit. Die Direktion kondoliert per Serienbrief. Dein Name ist falsch geschrieben." },
+    win: { word: "Qualifiziert", txt: "Jahresendrallye überstanden. Der Pokal ist aus Plastik. Du weinst trotzdem." }
+  };
+
+  /* Einmal pro Runde, wenn ein Wert zum ersten Mal in den roten Bereich kippt. */
+  var VERMERKE = {
+    p: "Vermerk Buchhaltung: Ihr Konto hustet. Der Dispo kennt Sie jetzt beim Vornamen.",
+    z: "Vermerk: Sie träumen neuerdings in Terminbestätigungen.",
+    f: "Vermerk von zu Hause: Dein Platz am Tisch wird noch mitgedeckt. Aus Gewohnheit.",
+    s: "Vermerk der Direktion: Ihre Stornoquote entwickelt sich »besorgniserregend dynamisch«."
+  };
+
+  var ARCH_TOTAL = 7;
+
+  /* ---------- Helpers ---------- */
+  function hash(str) {
+    var x = 9;
+    for (var i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 387420489);
+    return x >>> 0;
+  }
+  function pct(card, side) { return 34 + hash(card.id + side) % 59; }
+  function clamp(v) { return Math.max(0, Math.min(100, v)); }
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* Kalender: Tag 1 = 1. Januar */
+  var CUM = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
+  var MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+                "August", "September", "Oktober", "November", "Dezember"];
+  function monthOf(day) {
+    for (var m = 0; m < 12; m++) if (day <= CUM[m]) return m + 1;
+    return 12;
+  }
+  function domOf(day) {
+    var m = monthOf(day);
+    return day - (m > 1 ? CUM[m - 2] : 0);
+  }
+  function dateLabel(day) { return domOf(day) + ". " + MONTHS[monthOf(day) - 1]; }
+
+  /* ---------- Storage ---------- */
+  function lsGet(k) { try { return localStorage.getItem("storno." + k); } catch (e) { return null; } }
+  function lsSet(k, v) { if (tutorialMode) return; try { localStorage.setItem("storno." + k, v); } catch (e) {} }
+
+  /* ---------- Audio (synthetisch, keine Assets) ---------- */
+  var AC = null;
+  var muted = lsGet("mute") === "1";
+  function ac() {
+    if (!AC) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      AC = new Ctx();
+    }
+    if (AC.state === "suspended") AC.resume();
+    return AC;
+  }
+  function noiseBuf(ctx, secs) {
+    var buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * secs)), ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+  var snd = {
+    deal: function () {
+      if (muted) return;
+      try {
+        var ctx = ac(); if (!ctx) return;
+        var src = ctx.createBufferSource(); src.buffer = noiseBuf(ctx, 0.05);
+        var f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 1100;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.06, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+        src.connect(f); f.connect(g); g.connect(ctx.destination);
+        src.start();
+      } catch (e) {}
+    },
+    swoosh: function () {
+      if (muted) return;
+      try {
+        var ctx = ac(); if (!ctx) return;
+        var src = ctx.createBufferSource(); src.buffer = noiseBuf(ctx, 0.14);
+        var f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 0.8;
+        f.frequency.setValueAtTime(500, ctx.currentTime);
+        f.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 0.13);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.09, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+        src.connect(f); f.connect(g); g.connect(ctx.destination);
+        src.start();
+      } catch (e) {}
+    },
+    thunk: function () {
+      if (muted) return;
+      try {
+        var ctx = ac(); if (!ctx) return;
+        var o = ctx.createOscillator(); o.type = "sine";
+        o.frequency.setValueAtTime(130, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(55, ctx.currentTime + 0.09);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.4, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.13);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + 0.14);
+        var src = ctx.createBufferSource(); src.buffer = noiseBuf(ctx, 0.03);
+        var hf = ctx.createBiquadFilter(); hf.type = "highpass"; hf.frequency.value = 900;
+        var ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.12, ctx.currentTime);
+        ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
+        src.connect(hf); hf.connect(ng); ng.connect(ctx.destination);
+        src.start();
+      } catch (e) {}
+    },
+    win: function () {
+      if (muted) return;
+      try {
+        var ctx = ac(); if (!ctx) return;
+        [523, 659, 784].forEach(function (freq, i) {
+          var o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = freq;
+          var g = ctx.createGain();
+          var t0 = ctx.currentTime + i * 0.09;
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.35);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(t0); o.stop(t0 + 0.4);
+        });
+      } catch (e) {}
+    }
+  };
+  function buzz(pattern) {
+    if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} }
+  }
+
+  /* ---------- State ---------- */
+  var bars, deck, days, idx, day, busy = false, deadKey = null;
+  var vermerkt, rallyShown;
+
+  /* ---------- DOM ---------- */
+  var $ = function (id) { return document.getElementById(id); };
+  var screens = { intro: $("intro"), game: $("game"), end: $("end") };
+  var hud = $("hud"), stage = $("stage"),
+      toastEl = $("toast"), toastNote = $("toastNote"),
+      toastMain = $("toastMain"), toastSub = $("toastSub"),
+      btnL = $("btnL"), btnR = $("btnR"),
+      kalSheet = $("kalSheet"), kTop = $("kTop"), dayNum = $("dayNum"), vorgang = $("vorgang"),
+      slam = $("slam"), slamText = $("slamText"), root = $("storno"),
+      nameInput = $("nameInput"), muteBtn = $("muteBtn");
+
+  function show(name) {
+    for (var k in screens) screens[k].classList.toggle("on", k === name);
+  }
+  function playerName() {
+    var n = (nameInput.value || "").trim();
+    return n || "N. N.";
+  }
+
+  /* Mute */
+  function renderMute() { muteBtn.classList.toggle("off", muted); }
+  muteBtn.addEventListener("click", function () {
+    muted = !muted;
+    lsSet("mute", muted ? "1" : "0");
+    renderMute();
+    if (!muted) snd.deal();
+  });
+  renderMute();
+
+  /* Name laden */
+  nameInput.value = lsGet("name") || "";
+
+  /* Rekord + Sammlung auf dem Intro */
+  function renderRecord() {
+    var rec = $("record");
+    var best = parseInt(lsGet("best") || "0", 10);
+    var won = lsGet("won") === "1";
+    var archs = [];
+    try { archs = JSON.parse(lsGet("archs") || "[]"); } catch (e) {}
+    if (!best && !archs.length) { rec.classList.remove("on"); return; }
+    var parts = [];
+    if (won) parts.push("Aktenlage: Jahr überstanden");
+    else if (best) parts.push("Aktenlage: bis zum " + dateLabel(best));
+    if (archs.length) parts.push(archs.length + " von " + ARCH_TOTAL + " Profilen");
+    rec.textContent = parts.join(" · ");
+    rec.classList.add("on");
+  }
+  renderRecord();
+
+  /* Legende auf dem Intro */
+  $("legendIcons").innerHTML = KEYS.map(function (k) {
+    return "<div><span>" + IC[k] + "</span>" + NAMES[k] + "</div>";
+  }).join("");
+
+  /* HUD-Kacheln */
+  hud.innerHTML = KEYS.map(function (k) {
+    return '<div class="meter" id="m_' + k + '" role="img" aria-label="' + NAMES[k] + '">' +
+      '<span class="dot"></span>' +
+      '<span class="ico">' + IC[k] + "</span>" +
+      '<div class="track"><div class="fill"></div></div>' +
+      '<span class="lbl">' + NAMES[k] + "</span></div>";
+  }).join("");
+
+  function renderBars() {
+    KEYS.forEach(function (k) {
+      var m = $("m_" + k);
+      m.querySelector(".fill").style.width = bars[k] + "%";
+      var danger = (k === "s") ? bars[k] >= 70 : bars[k] <= 25;
+      m.classList.toggle("danger", danger);
+    });
+  }
+  /* Wirkungs-Vorschau: gut = Gelb, schlecht = Rot. Für Storno ist Minus gut. */
+  function renderDots(side) {
+    KEYS.forEach(function (k) {
+      var dot = $("m_" + k).querySelector(".dot");
+      var fx = side && deck[idx] ? (deck[idx][side].fx[k] || 0) : 0;
+      dot.classList.toggle("show", fx !== 0);
+      dot.classList.toggle("big", Math.abs(fx) >= 15);
+      var good = (k === "s") ? fx < 0 : fx > 0;
+      dot.classList.toggle("good", fx !== 0 && good);
+    });
+  }
+  function spawnChips(fx) {
+    KEYS.forEach(function (k) {
+      if (!fx[k]) return;
+      var chip = document.createElement("span");
+      chip.className = "dchip" + (fx[k] < 0 ? " neg" : "");
+      chip.textContent = (fx[k] > 0 ? "+" : "") + fx[k];
+      $("m_" + k).appendChild(chip);
+      setTimeout(function () { chip.remove(); }, 1000);
+    });
+  }
+
+  /* ---------- Toast-Warteschlange ---------- */
+  var toastQueue = [], toastTimer = null;
+  function queueToast(main, sub, isVermerk) {
+    if (toastQueue.length >= 2) toastQueue.shift();
+    toastQueue.push({ main: main, sub: sub || "", vermerk: !!isVermerk });
+    if (!toastTimer) nextToast();
+  }
+  function nextToast() {
+    var item = toastQueue.shift();
+    if (!item) { toastTimer = null; return; }
+    toastMain.textContent = item.main;
+    toastSub.textContent = item.sub;
+    toastSub.style.display = item.sub ? "" : "none";
+    toastNote.classList.toggle("vermerk", item.vermerk);
+    toastEl.classList.add("on");
+    toastTimer = setTimeout(function () {
+      toastEl.classList.remove("on");
+      toastTimer = setTimeout(function () { toastTimer = null; nextToast(); }, 250);
+    }, 1900);
+  }
+
+  /* ---------- Deck + Jahresplan ---------- */
+  function buildRun() {
+    var RUN = 24;
+    var pool = CARDS.filter(function (c) { return c.id !== FINALE_ID; });
+    var finale = CARDS.filter(function (c) { return c.id === FINALE_ID; })[0];
+    /* Jede Runde ein frisch gemischtes Deck – kein Pinning, keine Wiederholung. */
+    var chosen = shuffle(pool.slice()).slice(0, RUN - 1);
+
+    /* Terminplan: Karten über das Jahr verteilen, Finale am 24. Dezember. */
+    var n = chosen.length;
+    days = [];
+    for (var i = 0; i < n; i++) {
+      var raw = Math.round(4 + i * (346 / (n - 1)) + (Math.random() * 14 - 7));
+      days.push(Math.max(2, Math.min(350, raw)));
+    }
+    days.sort(function (a, b) { return a - b; });
+    for (var j = 1; j < n; j++) if (days[j] <= days[j - 1]) days[j] = days[j - 1] + 2;
+    days.push(358); /* Heiligabend */
+
+    /* Saison-Karten in passende Slots legen */
+    var slots = new Array(n).fill(null);
+    var used = new Array(n).fill(false);
+    var seasonal = chosen.filter(function (c) { return c.season && slots.indexOf(c) === -1; });
+    seasonal.forEach(function (c) {
+      /* Alle freien Slots im Umkreis von einem Monat sammeln und zufällig wählen,
+         damit Saison-Karten nicht jede Runde an derselben Position liegen. */
+      var bestDist = 99;
+      for (var s = 0; s < n; s++) {
+        if (used[s]) continue;
+        var dist = Math.abs(monthOf(days[s]) - c.season);
+        if (dist < bestDist) bestDist = dist;
+      }
+      var candidates = [];
+      for (var s2 = 0; s2 < n; s2++) {
+        if (used[s2]) continue;
+        if (Math.abs(monthOf(days[s2]) - c.season) <= Math.max(bestDist, 1)) candidates.push(s2);
+      }
+      if (candidates.length) {
+        var pick = candidates[Math.floor(Math.random() * candidates.length)];
+        slots[pick] = c; used[pick] = true;
+      }
+    });
+    var others = shuffle(chosen.filter(function (c) { return slots.indexOf(c) === -1; }));
+    for (var s2 = 0; s2 < n; s2++) {
+      if (!used[s2]) { slots[s2] = others.pop(); used[s2] = true; }
+    }
+    deck = slots.concat([finale]);
+  }
+
+  /* ---------- Card rendering ---------- */
+  var cardEl = null;
+
+  function makeCard(card) {
+    var el = document.createElement("div");
+    el.className = "card";
+    var parts = card.who.split(" · ");
+    var whoMain = parts[0];
+    var scene = parts.slice(1).join(" · ");
+    el.innerHTML =
+      '<div class="watermark"><i>' + (card.wm || "Vertraulich") + "</i></div>" +
+      (card.urgent ? '<span class="eilt">Eilt</span>' : "") +
+      '<div class="card-top"><span class="vorgang-tab">Blatt ' + String(idx + 1).padStart(2, "0") + "/" + deck.length + "</span></div>" +
+      '<div class="body"><div class="ctx">' +
+        '<span class="ctx-label">Betreff</span>' +
+        '<span class="who">' + whoMain + "</span>" +
+        (scene ? '<span class="scene">' + scene + "</span>" : "") +
+      "</div>" +
+      '<p class="quote">' + card.txt + "</p>" +
+      (card.sub ? '<p class="note">' + card.sub + "</p>" : "") +
+      "</div>" +
+      '<div class="perfo"><span>K-2026</span><span>bitte wenden</span></div>' +
+      '<span class="verdict L">' + card.L.st + "</span>" +
+      '<span class="verdict R">' + card.R.st + "</span>";
+    return el;
+  }
+
+  /* Buttons: Stempelwort groß, Original-Text klein darunter */
+  function fillBtn(btn, choice) {
+    var norm = function (s) { return s.replace(/[»«.]/g, "").trim().toLowerCase(); };
+    var same = norm(choice.t) === norm(choice.st);
+    btn.innerHTML = '<span class="bst">' + choice.st + "</span>" +
+      (same ? "" : '<span class="bt">' + choice.t + "</span>");
+  }
+
+  function updateKal() {
+    var m = monthOf(day), rally = m === 12;
+    kTop.textContent = MONTHS[m - 1];
+    dayNum.textContent = domOf(day) + ".";
+    kalSheet.classList.toggle("rally", rally);
+    vorgang.innerHTML = "Vorgang " + (idx + 1) + "/" + deck.length +
+      (rally ? ' · <b class="rally">Endspurt</b>' : "");
+    if (!reduceMotion) {
+      kalSheet.classList.remove("flip");
+      void kalSheet.offsetWidth;
+      kalSheet.classList.add("flip");
+    }
+  }
+
+  function dealCard() {
+    if (cardEl) { cardEl.remove(); cardEl = null; }
+    if (idx >= deck.length) { finish("win"); return; }
+    var card = deck[idx];
+    day = days[idx];
+    cardEl = makeCard(card);
+    stage.appendChild(cardEl);
+    fillBtn(btnL, card.L);
+    fillBtn(btnR, card.R);
+    updateKal();
+    if (monthOf(day) === 12 && !rallyShown) {
+      rallyShown = true;
+      queueToast("Dezember. Jahresendrallye. Ab jetzt zählt jeder Vorgang doppelt. Gefühlt.", "", true);
+      buzz(20);
+    }
+    attachDrag(cardEl);
+    snd.deal();
+    if (!reduceMotion) {
+      cardEl.animate(
+        [{ transform: "translateY(30px) rotate(3deg) scale(.95)", opacity: 0 },
+         { transform: "none", opacity: 1 }],
+        { duration: 240, easing: "cubic-bezier(.2,.8,.3,1.15)" }
+      );
+    }
+  }
+
+  /* ---------- Drag (mit Fling) ---------- */
+  function attachDrag(el) {
+    var startX = 0, dx = 0, dragging = false;
+    var lastX = 0, lastT = 0, vel = 0;
+    var vL = el.querySelector(".verdict.L"), vR = el.querySelector(".verdict.R");
+
+    function move(e) {
+      if (!dragging) return;
+      dx = e.clientX - startX;
+      var now = e.timeStamp || Date.now();
+      if (now > lastT) {
+        vel = (e.clientX - lastX) / (now - lastT);
+        lastX = e.clientX; lastT = now;
+      }
+      el.style.transform = "translateX(" + dx + "px) rotate(" + dx * 0.06 + "deg)";
+      var a = Math.min(1, Math.abs(dx) / 75);
+      if (dx < -14) { vL.style.opacity = a; vR.style.opacity = 0; }
+      else if (dx > 14) { vR.style.opacity = a; vL.style.opacity = 0; }
+      else { vL.style.opacity = 0; vR.style.opacity = 0; }
+      if (Math.abs(dx) > 26) renderDots(dx < 0 ? "L" : "R"); else renderDots(null);
+      screens.game.classList.toggle("tintL", dx < -40);
+      screens.game.classList.toggle("tintR", dx > 40);
+      btnL.classList.toggle("hot", dx < -26);
+      btnR.classList.toggle("hot", dx > 26);
+    }
+    function up() {
+      if (!dragging) return;
+      dragging = false;
+      btnL.classList.remove("hot"); btnR.classList.remove("hot");
+      screens.game.classList.remove("tintL", "tintR");
+      var fling = Math.abs(vel) > 0.55 && Math.abs(dx) > 32 && (vel < 0) === (dx < 0);
+      if (Math.abs(dx) > 85 || fling) { commit(dx < 0 ? "L" : "R"); }
+      else {
+        el.style.transition = "transform .25s cubic-bezier(.2,.8,.3,1.3)";
+        el.style.transform = "";
+        vL.style.opacity = 0; vR.style.opacity = 0;
+        renderDots(null);
+        setTimeout(function () { el.style.transition = ""; }, 260);
+      }
+    }
+    el.addEventListener("pointerdown", function (e) {
+      if (busy) return;
+      dragging = true; startX = e.clientX; dx = 0;
+      lastX = e.clientX; lastT = e.timeStamp || Date.now(); vel = 0;
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+
+  /* ---------- Choice commit ---------- */
+  function commit(side) {
+    if (busy || !cardEl) return;
+    if (tutorialMode) { busy = true; tutorialSend("choice", { index: idx, side: side }); return; }
+    busy = true;
+    var card = deck[idx];
+    var choice = card[side];
+    var fx = choice.fx;
+
+    buzz(12);
+    snd.swoosh();
+
+    /* fly out */
+    var out = (side === "L" ? -1 : 1) * (stage.offsetWidth + 140);
+    cardEl.style.transition = "transform .3s ease-in, opacity .3s";
+    cardEl.style.transform = "translateX(" + out + "px) rotate(" + out * 0.05 + "deg)";
+    cardEl.style.opacity = "0";
+
+    /* apply effects (raw behalten, damit der Tod die größte Überschreitung trifft) */
+    var raw = {};
+    KEYS.forEach(function (k) {
+      raw[k] = bars[k] + (fx[k] || 0);
+      bars[k] = clamp(raw[k]);
+    });
+    renderBars();
+    renderDots(null);
+    spawnChips(fx);
+    screens.game.classList.remove("tintL", "tintR");
+
+    /* Konsequenz + (Fake-)Statistik */
+    var p = pct(card, side);
+    queueToast(choice.out, p >= 50
+      ? p + " % entscheiden hier wie du"
+      : "Nur " + p + " % trauen sich das");
+
+    /* Vermerk, wenn ein Wert frisch in den roten Bereich kippt */
+    KEYS.forEach(function (k) {
+      var danger = (k === "s") ? bars[k] >= 70 : bars[k] <= 25;
+      if (danger && !vermerkt[k]) {
+        vermerkt[k] = true;
+        queueToast(VERMERKE[k], "", true);
+      }
+    });
+
+    /* Tod: der Wert mit der größten Überschreitung in diesem Zug */
+    deadKey = null;
+    var worst = -1;
+    KEYS.forEach(function (k) {
+      var dead = (k === "s") ? raw[k] >= 100 : raw[k] <= 0;
+      var over = (k === "s") ? raw[k] - 100 : -raw[k];
+      if (dead && over > worst) { worst = over; deadKey = k; }
+    });
+
+    setTimeout(function () {
+      idx++;
+      if (deadKey) { finish(deadKey); return; }
+      busy = false;
+      dealCard();
+    }, 300);
+  }
+
+  /* ---------- Endings ---------- */
+  function archetype() {
+    var b = bars;
+    if (!deadKey && b.p >= 45 && b.f >= 45 && b.z >= 35 && b.s <= 45)
+      return ["Der Ausbalancierte", "Provision gut, Ehe intakt. Statistisch quasi unmöglich."];
+    if (b.s >= 70) return ["Der Storno-Magnet", "Du verkaufst schnell. Deine Kunden kündigen schneller."];
+    if (b.p >= 65) return ["Die Abschlussmaschine", "Unterschrift zuerst, Gefühle später."];
+    if (b.f >= 65) return ["Der Feierabendheld", "Ab 17 Uhr klingelt nur noch der Grill."];
+    if (b.s <= 12) return ["Der Saubermann", "Deine Stornoquote hängt gerahmt in der Direktion."];
+    if (b.z >= 65) return ["Der Zeitmillionär", "Kalender leer, Kopf frei, Konto naja."];
+    return ["Der Küchentisch-Krieger", "Zwischen Kaffee und Bienenstich zum Abschluss."];
+  }
+
+  function persistRun(won, arch) {
+    var runs = parseInt(lsGet("runs") || "0", 10) + 1;
+    lsSet("runs", String(runs));
+    lsSet("name", (nameInput.value || "").trim());
+    var endDay = won ? 365 : day;
+    var best = parseInt(lsGet("best") || "0", 10);
+    if (endDay > best) lsSet("best", String(endDay));
+    if (won) lsSet("won", "1");
+    var archs = [];
+    try { archs = JSON.parse(lsGet("archs") || "[]"); } catch (e) {}
+    var isNew = archs.indexOf(arch) === -1;
+    if (isNew) { archs.push(arch); lsSet("archs", JSON.stringify(archs)); }
+    return { count: archs.length, isNew: isNew };
+  }
+
+  function finish(key) {
+    busy = true;
+    var won = key === "win";
+    var end = ENDINGS[key];
+    if (won) day = 365;
+    slamText.textContent = end.word;
+    slamText.classList.toggle("green", won);
+    slam.classList.add("on");
+    snd.thunk();
+    if (won) { snd.win(); buzz([20, 40, 20, 80]); } else { buzz([40, 50, 80]); }
+    if (!reduceMotion) root.classList.add("shaking");
+
+    setTimeout(function () {
+      slam.classList.remove("on");
+      root.classList.remove("shaking");
+      var a = archetype();
+      var coll = persistRun(won, a[0]);
+      $("endStamp").textContent = end.word;
+      $("endStamp").classList.toggle("green", won);
+      $("endCause").textContent = end.txt;
+      $("archWho").textContent = playerName();
+      $("archName").textContent = a[0];
+      $("archSub").textContent = a[1];
+      $("statDate").textContent = won ? "Qualifiziert · 31. Dezember" : "Ausgeschieden am " + dateLabel(day);
+      $("statTurns").textContent = idx + " Entscheidungen";
+      $("endNo").textContent = "K-2026/" + String(hash(String(day) + playerName()) % 900 + 100);
+      $("endBars").innerHTML = KEYS.map(function (k) {
+        var dead = (k === deadKey);
+        return '<div class="eb' + (dead ? " dead" : "") + '"><i>' + IC[k] + "</i>" +
+          '<div class="ebt"><div class="ebf" style="width:' + bars[k] + '%"></div></div></div>';
+      }).join("");
+      $("collect").innerHTML = "Profil " + coll.count + " von " + ARCH_TOTAL + " gesammelt" +
+        (coll.isNew ? " · <b>neu freigeschaltet</b>" : "");
+      renderRecord();
+      show("end");
+      busy = false;
+    }, reduceMotion ? 400 : 1150);
+  }
+
+  /* ---------- Teilen: Dienstzeugnis als Bild ---------- */
+  function blocks(v) {
+    var full = Math.round(v / 20), s = "";
+    for (var i = 0; i < 5; i++) s += i < full ? "▓" : "░";
+    return s;
+  }
+  function shareText() {
+    var end = deadKey ? ENDINGS[deadKey] : ENDINGS.win;
+    var when = deadKey ? "am " + dateLabel(day) : "· 31. Dezember";
+    return "STORNO · " + end.word.toUpperCase() + " " + when + "\n" +
+      playerName() + " · " + archetype()[0] + "\n" +
+      "💰 " + blocks(bars.p) + "  ⏰ " + blocks(bars.z) + "\n" +
+      "❤️ " + blocks(bars.f) + "  📉 " + blocks(bars.s) + "\n" +
+      "Überlebe den schönsten Job der Welt.";
+  }
+  function wrapText(ctx, text, maxWidth) {
+    var words = text.split(" "), lines = [], line = "";
+    words.forEach(function (w) {
+      var test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; }
+      else line = test;
+    });
+    if (line) lines.push(line);
+    return lines;
+  }
+  function paperRect(ctx, x, y, w, h, r) {
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+    else { ctx.beginPath(); ctx.rect(x, y, w, h); }
+  }
+  function drawCert() {
+    var W = 1080, H = 1350;
+    var cv = document.createElement("canvas");
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext("2d");
+    var ink = "#15181D", inkSoft = "#4A545E",
+        stampCol = deadKey ? "#E23B2E" : "#2E6B4F";
+
+    /* Hintergrund: dunkles Blueprint */
+    ctx.fillStyle = "#0F141B"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(120,150,185,.07)"; ctx.lineWidth = 2;
+    for (var gy = 0; gy < H; gy += 50) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+    for (var gx = 0; gx < W; gx += 50) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+
+    /* Papier-Karte mit hartem Schatten */
+    var px = 60, py = 70, pw = W - 120, ph = H - 150;
+    ctx.fillStyle = "rgba(0,0,0,.55)";
+    paperRect(ctx, px + 22, py + 22, pw, ph, 28); ctx.fill();
+    ctx.fillStyle = "#FAF7EF";
+    paperRect(ctx, px, py, pw, ph, 28); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 8;
+    paperRect(ctx, px, py, pw, ph, 28); ctx.stroke();
+    /* Linienpapier */
+    ctx.strokeStyle = "rgba(21,24,29,.05)"; ctx.lineWidth = 2;
+    for (var y = py + 130; y < py + ph - 60; y += 54) {
+      ctx.beginPath(); ctx.moveTo(px + 50, y); ctx.lineTo(px + pw - 50, y); ctx.stroke();
+    }
+
+    ctx.textAlign = "center";
+
+    /* Gelber Kopf-Chip */
+    ctx.save();
+    ctx.translate(W / 2, py + 78);
+    ctx.rotate(-1.6 * Math.PI / 180);
+    ctx.font = "800 30px " + '"Segoe UI", system-ui, sans-serif';
+    var head = "FORMULAR K-2026 · ABSCHLUSSBESCHEID";
+    var hw = ctx.measureText(head).width;
+    ctx.fillStyle = "#FFD43A";
+    paperRect(ctx, -hw / 2 - 26, -34, hw + 52, 62, 10); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 5;
+    paperRect(ctx, -hw / 2 - 26, -34, hw + 52, 62, 10); ctx.stroke();
+    ctx.fillStyle = ink;
+    ctx.fillText(head, 0, 10);
+    ctx.restore();
+
+    /* Name */
+    ctx.fillStyle = inkSoft;
+    try { ctx.letterSpacing = "5px"; } catch (e) {}
+    ctx.font = "800 26px " + '"Segoe UI", system-ui, sans-serif';
+    ctx.fillText("VERTRIEBSPROFIL VON", W / 2, py + 205);
+    try { ctx.letterSpacing = "0px"; } catch (e) {}
+    ctx.fillStyle = ink;
+    ctx.font = "italic 64px Georgia, serif";
+    ctx.fillText(playerName(), W / 2, py + 290);
+
+    /* Archetyp */
+    var a = archetype();
+    ctx.font = "700 76px Georgia, serif";
+    var archLines = wrapText(ctx, a[0], pw - 160);
+    archLines.forEach(function (l, i) { ctx.fillText(l, W / 2, py + 405 + i * 86); });
+    var yAfter = py + 405 + archLines.length * 86;
+    ctx.font = "italic 34px Georgia, serif";
+    ctx.fillStyle = inkSoft;
+    wrapText(ctx, a[1], pw - 200).forEach(function (l, i) { ctx.fillText(l, W / 2, yAfter + 4 + i * 46); });
+
+    /* Stempel */
+    var end = deadKey ? ENDINGS[deadKey] : ENDINGS.win;
+    ctx.save();
+    ctx.translate(W / 2, py + 760);
+    ctx.rotate(-6 * Math.PI / 180);
+    ctx.globalAlpha = 0.92;
+    ctx.font = "900 108px Impact, 'Arial Narrow', sans-serif";
+    var word = end.word.toUpperCase();
+    var tw = ctx.measureText(word).width;
+    ctx.strokeStyle = stampCol; ctx.lineWidth = 12;
+    paperRect(ctx, -tw / 2 - 42, -90, tw + 84, 150, 14); ctx.stroke();
+    ctx.fillStyle = stampCol;
+    ctx.fillText(word, 0, 24);
+    ctx.restore();
+
+    /* Statuszeile */
+    ctx.fillStyle = inkSoft;
+    try { ctx.letterSpacing = "4px"; } catch (e) {}
+    ctx.font = "800 27px " + '"Segoe UI", system-ui, sans-serif';
+    var statLine = (deadKey ? "AUSGESCHIEDEN AM " + dateLabel(day).toUpperCase() : "QUALIFIZIERT · 31. DEZEMBER") +
+      " · " + idx + " ENTSCHEIDUNGEN";
+    ctx.fillText(statLine, W / 2, py + 905);
+    try { ctx.letterSpacing = "0px"; } catch (e) {}
+
+    /* Werte-Kacheln */
+    var certLabels = { p: "PROVISION", z: "ZEIT", f: "FAMILIE", s: "STORNO" };
+    var bw = 200, gap = 40, total = 4 * bw + 3 * gap, x0 = (W - total) / 2;
+    KEYS.forEach(function (k, i) {
+      var x = x0 + i * (bw + gap), yTop = py + 950;
+      ctx.strokeStyle = (k === deadKey) ? "#E23B2E" : ink; ctx.lineWidth = 4;
+      paperRect(ctx, x, yTop, bw, 110, 14); ctx.stroke();
+      ctx.font = "800 21px " + '"Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = (k === deadKey) ? "#E23B2E" : ink;
+      ctx.fillText(certLabels[k], x + bw / 2, yTop + 42);
+      ctx.fillStyle = "rgba(21,24,29,.15)";
+      paperRect(ctx, x + 20, yTop + 68, bw - 40, 16, 8); ctx.fill();
+      ctx.fillStyle = (k === deadKey) ? "#E23B2E" : ink;
+      paperRect(ctx, x + 20, yTop + 68, Math.max(10, (bw - 40) * bars[k] / 100), 16, 8); ctx.fill();
+    });
+
+    /* Fuß */
+    ctx.fillStyle = ink;
+    ctx.font = "italic 32px Georgia, serif";
+    ctx.fillText("Überlebe den schönsten Job der Welt.", W / 2, py + ph - 74);
+    ctx.fillStyle = inkSoft;
+    try { ctx.letterSpacing = "5px"; } catch (e) {}
+    ctx.font = "800 22px " + '"Segoe UI", system-ui, sans-serif';
+    ctx.fillText("STORNO · DAS SPIEL", W / 2, py + ph - 34);
+    try { ctx.letterSpacing = "0px"; } catch (e) {}
+    return cv;
+  }
+  $("shareBtn").addEventListener("click", function () {
+    var b = $("shareBtn");
+    try {
+      var cv = drawCert();
+      cv.toBlob(function (blob) {
+        var done = function (label) {
+          b.textContent = label;
+          setTimeout(function () { b.textContent = "Teilen"; }, 1800);
+        };
+        if (blob && navigator.canShare && navigator.share) {
+          var file = new File([blob], "storno-dienstzeugnis.png", { type: "image/png" });
+          if (navigator.canShare({ files: [file] })) {
+            navigator.share({ files: [file], text: shareText() }).catch(function () {});
+            return;
+          }
+        }
+        if (navigator.share) {
+          navigator.share({ text: shareText() }).catch(function () {});
+          return;
+        }
+        /* Fallback: Bild herunterladen + Text kopieren */
+        var a = document.createElement("a");
+        a.href = cv.toDataURL("image/png");
+        a.download = "storno-dienstzeugnis.png";
+        a.click();
+        if (navigator.clipboard) navigator.clipboard.writeText(shareText()).catch(function () {});
+        done("Gespeichert!");
+      }, "image/png");
+    } catch (e) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareText()).then(function () {
+          b.textContent = "Kopiert!";
+          setTimeout(function () { b.textContent = "Teilen"; }, 1500);
+        });
+      }
+    }
+  });
+
+  /* ---------- Button-Vorschau: halten zeigt Wirkung, loslassen entscheidet ---------- */
+  function bindChoice(btn, side) {
+    var pressed = false;
+    btn.addEventListener("pointerdown", function () {
+      if (busy || !cardEl) return;
+      pressed = true;
+      renderDots(side);
+      btn.classList.add("hot");
+    });
+    btn.addEventListener("pointerup", function () {
+      btn.classList.remove("hot");
+      if (pressed && !busy && cardEl) commit(side);
+      pressed = false;
+      if (!busy) renderDots(null);
+    });
+    btn.addEventListener("pointerleave", function () {
+      if (!pressed) return;
+      pressed = false;
+      btn.classList.remove("hot");
+      renderDots(null);
+    });
+    btn.addEventListener("pointercancel", function () {
+      pressed = false;
+      btn.classList.remove("hot");
+      renderDots(null);
+    });
+    /* Fallback für Tastatur und Assistive Tech: reine click-Events ohne Pointer.
+       Nach einem Pointer-Commit blockt busy den direkt folgenden click. */
+    btn.addEventListener("click", function () {
+      if (!busy && cardEl) commit(side);
+    });
+    /* Maus-Hover zeigt die Wirkung ebenfalls */
+    btn.addEventListener("pointerenter", function (e) {
+      if (e.pointerType === "mouse" && !busy && cardEl) renderDots(side);
+    });
+    btn.addEventListener("pointerout", function (e) {
+      if (e.pointerType === "mouse" && !pressed && !busy) renderDots(null);
+    });
+  }
+  bindChoice(btnL, "L");
+  bindChoice(btnR, "R");
+
+  /* ---------- Start / restart ---------- */
+  function newRun() {
+    bars = { p: 50, z: 50, f: 50, s: 20 };
+    idx = 0; deadKey = null; busy = false;
+    vermerkt = { p: false, z: false, f: false, s: false };
+    rallyShown = false;
+    lsSet("name", (nameInput.value || "").trim());
+    buildRun();
+    day = days[0];
+    renderBars();
+    show("game");
+    dealCard();
+  }
+
+  $("startBtn").addEventListener("click", function () { ac(); newRun(); });
+  $("againBtn").addEventListener("click", newRun);
+  nameInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { ac(); newRun(); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!screens.game.classList.contains("on") || busy || !cardEl) return;
+    if (e.key === "ArrowLeft") commit("L");
+    if (e.key === "ArrowRight") commit("R");
+  });
+  if (tutorialMode) {
+    document.documentElement.classList.add("tutorial");
+    document.querySelector(".heimweg").style.display = "none";
+    document.querySelector(".kal").style.display = "none";
+    document.querySelector(".intro-rules").textContent = "Deine Einstiegsrunde wird geladen …";
+    document.querySelector(".sig").hidden = true;
+    $("startBtn").hidden = true;
+    document.querySelector(".intro-foot").hidden = true;
+    var tutorialInitialized = false;
+    var tutorialTimer;
+    function restoreTutorial(choices, feedback) {
+      clearTimeout(tutorialTimer);
+      var run = replayTutorial(CARDS, choices);
+      deck = run.deck; bars = run.bars; idx = run.index;
+      days = [1, 2, 3, 4, 5]; day = days[Math.min(idx, 4)];
+      deadKey = null; vermerkt = {}; rallyShown = true;
+      if (cardEl) { cardEl.remove(); cardEl = null; }
+      renderBars(); show("game"); busy = true;
+      function next() {
+        if (run.done) { tutorialSend("complete"); return; }
+        busy = false; dealCard();
+      }
+      if (feedback && choices.length) {
+        queueToast(deck[choices.length - 1][choices[choices.length - 1]].out, "");
+        tutorialTimer = setTimeout(next, 1800);
+      } else next();
+    }
+    window.addEventListener("message", function (event) {
+      if (event.origin !== location.origin || event.source !== window.parent || !event.data || event.data.instance !== tutorialInstance) return;
+      var msg = event.data;
+      try {
+        if (msg.type === "storno:init" && !tutorialInitialized) {
+          tutorialInitialized = true;
+          nameInput.value = typeof msg.name === "string" ? msg.name : "";
+          restoreTutorial(msg.choices, false);
+        }
+        if (msg.type === "storno:saved" && tutorialInitialized) restoreTutorial(msg.choices, true);
+        if (msg.type === "storno:retry" && tutorialInitialized) busy = false;
+      } catch (e) { tutorialSend("error"); }
+    });
+    tutorialSend("ready");
+  }
+})();
+</script>
+</body>
+</html>

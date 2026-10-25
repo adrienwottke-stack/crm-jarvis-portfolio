@@ -1,0 +1,671 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Farbsystem
+   ---------------------------------------------------------------------------
+   WICHTIG fuer alle, die hier spaeter etwas aendern:
+
+   Tailwind v4 uebersetzt jede Farbklasse in "var(--color-...)". Deshalb kippt
+   der Dunkelmodus die Rampen selbst um (siehe .dark weiter unten) - eine
+   Seite muss dafuer nicht angefasst werden. Der Preis: "slate-900" heisst
+   danach nicht mehr "dunkel", sondern "die staerkste Textstufe". Genauso ist
+   "slate-50" die leiseste Flaeche, egal in welchem Modus.
+
+   Neuer Code soll deshalb die semantischen Tokens benutzen - surface, canvas,
+   line, ink, akzent - und nicht die Rampe. Die Rampe existiert nur noch,
+   damit der Bestand mitkippt.
+
+   Ausnahme: Flaechen, die in BEIDEN Modi dunkel bleiben (Schleuse, Willkommen,
+   Offline-Seite). Die tragen die Klasse "buehne" und bekommen dort die
+   Hell-Rampe zurueck - sonst wuerde heller Text auf ihnen unsichtbar.
+--------------------------------------------------------------------------- */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, var(--font-inter), "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", var(--font-geist-mono), monospace;
+}
+
+@theme {
+  /* Blaue Akzente; die dunklen Stufen tragen die feste Navy-Oberflaeche. */
+  --color-navy-50: #eef6ff;
+  --color-navy-100: #d9ebff;
+  --color-navy-200: #b3d6ff;
+  --color-navy-300: #80bbff;
+  --color-navy-400: #3d97ff;
+  --color-navy-500: #007aff;
+  --color-navy-600: #0066d9;
+  --color-navy-700: #0053b0;
+  --color-navy-800: #003f86;
+  --color-navy-900: #0a2e5c;
+  --color-navy-950: #0a1f3e;
+
+  /* Zwischenstufen, die das Standardraster nicht kennt. Als rem, damit sie
+     mit der Wurzel mitwachsen - eine feste px-Angabe waere sonst der einzige
+     Baustein, der auf grossen Schirmen klein bleibt, waehrend alles um ihn
+     herum groesser wird. Die Namen nennen die Groesse bei 16-px-Wurzel,
+     also am Handy und am Notebook. */
+  --text-10: 0.75rem;
+  --text-11: 0.75rem;
+  --text-13: 0.8125rem;
+  --text-15: 0.9375rem;
+
+  /* Gold: Auszeichnung, Platz 1, dezente Akzente */
+  --color-gold-100: #f7ecd4;
+  --color-gold-400: #d4a942;
+  --color-gold-600: #a97f24;
+
+  /* ---- Semantische Tokens: die Sprache fuer neuen Code ---- */
+
+  /* Blickdichte Flaechen halten Schrift und Bedienelemente klar getrennt. */
+  --color-canvas: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-sunken: #f0f0f0;
+
+  /* Linien */
+  --color-line: #e5e5e5;
+  --color-line-strong: #c4c4c4;
+
+  /* Schrift */
+  --color-ink: #171717;
+  --color-ink-muted: #6b6b6b;
+  --color-ink-soft: #6b6b6b;
+  --color-solid: #171717;
+  --color-solid-hover: #383838;
+  --color-on-solid: #ffffff;
+
+  /* Akzent: Hauptknopf und alles, was fuehrt - iOS-Blau, der einzige Akzent
+     der Oberflaeche. */
+  --color-akzent: #2563eb;
+  --color-akzent-stark: #1d4ed8;
+  --color-link: #2563eb;
+  --color-link-stark: #1d4ed8;
+
+  /* iOS-Pivots: Tailwind liefert diese Stufen sonst als Standardfarben aus
+     (reines Rot/Bernstein/Gruen). Ein paar Stellen greifen direkt auf sie zu
+     (bg-red-500, bg-amber-400, ...) - hier kippen nur diese eine Stufe pro
+     Rampe auf die iOS-Systemfarbe, damit sie zum Rest der Oberflaeche passt.
+     Die anderen Stufen derselben Rampen (100, 700, 800, ...) bleiben
+     Tailwind-Standard, genauso die fest-erfolg/-gefahr/-warnung-Tokens unten. */
+  --color-red-500: #ff3b30;
+  --color-amber-400: #ff9f0a;
+  --color-amber-500: #ff9500;
+  --color-emerald-500: #34c759;
+
+  /* ---- Gefuellte Ton-Knoepfe ----
+     "Anrufen" (gruen), "Loeschen" (rot), "Namen sammeln" (gelb).
+
+     Warum eigene Tokens und nicht einfach bg-emerald-600: diese Flaechen
+     tragen weisse Schrift. Die Rampe kippt im Dunkelmodus ins Helle, damit
+     aus emerald-600 ein helles Mintgruen wird - und weiss darauf ist nicht
+     mehr lesbar. Diese Werte bleiben in beiden Ansichten dunkel genug fuer
+     weisse Schrift (gemessen: 5,3 bis 6,0 zu 1).
+     Die Variante "-stark" ist der Zustand unter dem Zeiger: hell wird sie
+     dunkler, dunkel wird sie heller - in beiden Faellen also deutlicher. */
+  --color-fest-erfolg: #047857;
+  --color-fest-erfolg-stark: #065f46;
+  --color-fest-gefahr: #dc2626;
+  --color-fest-gefahr-stark: #b91c1c;
+  --color-fest-warnung: #78350f;
+  --color-fest-warnung-stark: #451a03;
+}
+
+/* ---- Tiefe ----
+   Navy-getoent, nie schwarz: ein schwarzer Schatten auf hellem Grund wirkt
+   schmutzig, ein leicht blauer wirkt wie Licht.
+
+   Bewusst NICHT in @theme: Tailwind loest --shadow-* schon beim Bauen auf und
+   schreibt den Wert fest in die Klasse. Der Dunkelmodus koennte ihn danach
+   nicht mehr aendern - die Karten haetten nachts denselben hellen Schatten.
+   Als normale Eigenschaft plus @utility bleibt die Variable zur Laufzeit
+   erhalten und kippt mit. */
+:root {
+  --schatten-karte: none;
+  --schatten-hoch: none;
+  --schatten-pop: 0 4px 12px rgb(10 22 40 / 0.08), 0 20px 48px -12px rgb(10 22 40 / 0.22);
+
+}
+
+@utility schatten-karte {
+  box-shadow: var(--schatten-karte);
+}
+
+@utility schatten-hoch {
+  box-shadow: var(--schatten-hoch);
+}
+
+@utility schatten-pop {
+  box-shadow: var(--schatten-pop);
+}
+
+/* Kompatibilitaet fuer bestehende Komponenten: feste Flaechen ohne Filter. */
+@utility glas {
+  background: var(--color-surface);
+}
+
+@utility glas-stark {
+  background: var(--color-surface);
+}
+
+@utility glas-dunkel {
+  background: #0d1626;
+}
+
+/* ---------------------------------------------------------------------------
+   Dunkelmodus
+   ---------------------------------------------------------------------------
+   Die Rampen sind nicht stur gespiegelt, sondern neu gesetzt: die hellen
+   Stufen (50-200) werden zu leisen Flaechen, die dunklen (600-950) zu Schrift.
+   Neutrales Graphit haelt CRM, Dialoge und Jarvis in derselben Farbwelt.
+--------------------------------------------------------------------------- */
+
+.dark {
+  /* Grau: 50-100 Flaeche, 200-300 Linie, ab 400 Schrift */
+  --color-slate-50: #212121;
+  --color-slate-100: #2b2b2b;
+  --color-slate-200: #383838;
+  --color-slate-300: #525252;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #b4b4b4;
+  --color-slate-600: #c4c4c4;
+  --color-slate-700: #d4d4d4;
+  --color-slate-800: #e5e5e5;
+  --color-slate-900: #f5f5f5;
+  --color-slate-950: #fafafa;
+
+  /* Navy: 50-300 Flaeche, ab 400 Schrift und Balken - iOS-Blau, siehe @theme */
+  --color-navy-50: #0f1e33;
+  --color-navy-100: #132540;
+  --color-navy-200: #1a3154;
+  --color-navy-300: #224170;
+  --color-navy-400: #4a97ff;
+  --color-navy-500: #5ea6ff;
+  --color-navy-600: #74b3ff;
+  --color-navy-700: #8fc2ff;
+  --color-navy-800: #abd2ff;
+  --color-navy-900: #c7e1ff;
+  --color-navy-950: #e0efff;
+
+  /* Gold: die 400 ist die Marke und bleibt, wie sie ist */
+  --color-gold-100: #2e2512;
+  --color-gold-400: #d4a942;
+  --color-gold-600: #e6c470;
+
+  --color-emerald-50: #10251c;
+  --color-emerald-100: #163024;
+  --color-emerald-200: #1e4433;
+  --color-emerald-300: #2a5f47;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #30d158;
+  --color-emerald-600: #45d49b;
+  --color-emerald-700: #6ce0ae;
+  --color-emerald-800: #92e9c4;
+  --color-emerald-900: #b9f2d9;
+  --color-emerald-950: #d9f9ea;
+
+  --color-red-50: #2b1518;
+  --color-red-100: #3a1b1f;
+  --color-red-200: #4d2328;
+  --color-red-300: #6b2f36;
+  --color-red-400: #f87171;
+  --color-red-500: #ff453a;
+  --color-red-600: #f8807f;
+  --color-red-700: #fb9b9b;
+  --color-red-800: #fdb8b8;
+  --color-red-900: #fed2d2;
+
+  --color-amber-50: #2a2010;
+  --color-amber-100: #382a12;
+  --color-amber-200: #4b3817;
+  --color-amber-300: #6b4f1e;
+  --color-amber-400: #ff9f0a;
+  --color-amber-500: #f5b026;
+  --color-amber-600: #f7c052;
+  --color-amber-700: #f9d182;
+  --color-amber-800: #fbdfa8;
+  --color-amber-900: #fdedcd;
+  --color-amber-950: #fef6e6;
+
+  --color-teal-50: #0d2422;
+  --color-teal-100: #12302d;
+  --color-teal-200: #17433f;
+  --color-teal-300: #1f5d57;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #1fc5b0;
+  --color-teal-600: #3fd6c3;
+  --color-teal-700: #6ee2d4;
+  --color-teal-800: #9aece2;
+  --color-teal-900: #c4f4ee;
+
+  /* Kalenderfarben: violet (Begleitung) und sky (Schulung) kippten hier
+     bisher gar nicht mit - Alt-Fehler, der erst auffiel, seit Dunkel
+     gleichwertig ist. Dieselbe Struktur wie die teal-Rampe direkt darueber:
+     50 dunkle getoente Flaeche, 400/500 kraeftige Mitteltoene, 700-900 helle
+     Textstufen. */
+  --color-violet-50: #110d24;
+  --color-violet-100: #181230;
+  --color-violet-200: #1f1743;
+  --color-violet-300: #2c1f5d;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #521fc5;
+  --color-violet-600: #773fd6;
+  --color-violet-700: #9b6ee2;
+  --color-violet-800: #ba9aec;
+  --color-violet-900: #d7c4f4;
+
+  --color-sky-50: #0d1b24;
+  --color-sky-100: #122430;
+  --color-sky-200: #173443;
+  --color-sky-300: #1f495d;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #1f91c5;
+  --color-sky-600: #3fa3d6;
+  --color-sky-700: #6eb9e2;
+  --color-sky-800: #9acfec;
+  --color-sky-900: #c4e2f4;
+
+  /* Semantik */
+  --color-canvas: #171717;
+  --color-surface: #212121;
+  --color-sunken: #2b2b2b;
+  --color-line: #383838;
+  --color-line-strong: #626262;
+  --color-ink: #f5f5f5;
+  --color-ink-muted: #a3a3a3;
+  --color-ink-soft: #a3a3a3;
+  --color-solid: #f5f5f5;
+  --color-solid-hover: #d4d4d4;
+  --color-on-solid: #171717;
+
+  /* Sattes Blau mit ausreichendem Kontrast zur weissen Beschriftung. */
+  --color-akzent: #60a5fa;
+  --color-akzent-stark: #93c5fd;
+  --color-link: #60a5fa;
+  --color-link-stark: #93c5fd;
+
+  /* Gefuellte Ton-Knoepfe: satt und dunkel genug fuer weisse Schrift, aber
+     heller als die Karte dahinter - sonst verschwaende der Knopf im Grund. */
+  --color-fest-erfolg: #0e7a53;
+  --color-fest-erfolg-stark: #107852;
+  --color-fest-gefahr: #b33636;
+  --color-fest-gefahr-stark: #c94444;
+  --color-fest-warnung: #8a5a12;
+  --color-fest-warnung-stark: #a06c18;
+
+  /* Im Dunkeln traegt ein blauer Schatten nicht mehr, hier zaehlt Schwarz. */
+  --schatten-karte: none;
+  --schatten-hoch: none;
+  --schatten-pop: 0 2px 8px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.65);
+}
+
+/* Dauerhaft dunkle Flaechen holen sich die Hell-Rampe zurueck: dort ist
+   "text-navy-200" helle Schrift auf Navy und muss das bleiben. Steht nach
+   .dark und gilt damit innerhalb der Buehne. */
+.buehne,
+.dark .buehne {
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+
+  --color-navy-50: #f2f6fb;
+  --color-navy-100: #e0eaf6;
+  --color-navy-200: #bed3ea;
+  --color-navy-300: #93b4d9;
+  --color-navy-400: #5f8dc0;
+  --color-navy-500: #3a6ba4;
+  --color-navy-600: #2b5387;
+  --color-navy-700: #22426c;
+  --color-navy-800: #1a3253;
+  --color-navy-900: #12233c;
+  --color-navy-950: #0a1628;
+
+  --color-gold-100: #f7ecd4;
+  --color-gold-400: #d4a942;
+  --color-gold-600: #a97f24;
+
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-emerald-700: #047857;
+  --color-emerald-800: #065f46;
+  --color-emerald-900: #064e3b;
+  --color-emerald-950: #022c22;
+
+  --color-red-50: #fef2f2;
+  --color-red-100: #fee2e2;
+  --color-red-200: #fecaca;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+  --color-red-800: #991b1b;
+  --color-red-900: #7f1d1d;
+
+  --color-amber-50: #fffbeb;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+  --color-amber-800: #92400e;
+  --color-amber-900: #78350f;
+  --color-amber-950: #451a03;
+
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-800: #115e59;
+  --color-teal-900: #134e4a;
+
+  --color-surface: #12233c;
+  --color-sunken: #0a1628;
+  --color-line: #22426c;
+  --color-line-strong: #2b5387;
+  --color-ink: #ffffff;
+  --color-ink-muted: #bed3ea;
+  --color-ink-soft: #93b4d9;
+  /* War Gold, ist jetzt derselbe Akzent wie der Rest der Oberflaeche. */
+  --color-akzent: #0a84ff;
+  --color-akzent-stark: #3d9aff;
+}
+
+/* Buehnen-Lichtflecken (Welle 7): dieselben blauen Lichtflecken wie der
+   Tapeten-Canvas (body::before), diesmal fest in den Bestand-Gradienten der
+   dauerhaft dunklen Layouts (Willkommen, AVV) eingebacken. Ein Element traegt
+   immer nur EIN "background-image" - zwei Utility-Klassen mit je einem
+   eigenen Gradienten wuerden sich nicht uebereinanderlegen, sondern die
+   zweite ersetzt die erste. Deshalb hier alle drei Ebenen (zwei Flecken,
+   ein linearer Verlauf) als eine einzige Deklaration, statt mit einem
+   zusaetzlichen ::before-Element zu arbeiten - das braeuchte einen eigenen
+   Stapelkontext, nur um denselben Effekt umstaendlicher zu erreichen.
+   Statisch, keine Animation - wie beim App-Canvas. Ersetzt dort, wo sie
+   verwendet wird, die drei Klassen "bg-gradient-to-b from-navy-950
+   via-navy-900 to-navy-800" (gleicher Verlauf, jetzt nur als CSS statt als
+   Tailwind-Utilities). */
+@utility buehne-flecken {
+  background-image:
+    radial-gradient(60rem 40rem at 12% -8%, rgb(10 132 255 / 0.12), transparent 60%),
+    radial-gradient(50rem 36rem at 100% 12%, rgb(100 210 255 / 0.06), transparent 55%),
+    linear-gradient(to bottom, var(--color-navy-950), var(--color-navy-900) 50%, var(--color-navy-800));
+}
+
+html {
+  /* Respect browser text preferences without scaling the entire app by width. */
+  font-size: 100%;
+  /* Sicherung gegen seitliches Scrollen: ein zu breites Element wuerde sonst
+     die Seite verschieben, und der sticky Header endet an der Bildschirm-
+     statt an der Seitenbreite. "clip" (nicht "hidden") laesst sticky heil,
+     weil dadurch kein eigener Scroll-Container entsteht. */
+  overflow-x: clip;
+  /* Platz fuer die Scrollleiste dauerhaft reservieren, damit das Oeffnen
+     eines Dialogs (body overflow: hidden) den Header nicht springen laesst. */
+  scrollbar-gutter: stable;
+  /* Damit Formularelemente, Scrollleiste und Auswahlmenues mitkippen. */
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  /* Ziffern gleich breit ausrichten waere hier falsch (Fliesstext) - aber
+     die Standard-Ligaturen von Inter bleiben an. Tabellenziffern setzen
+     die Bausteine gezielt per "tabular-nums". */
+  font-feature-settings: "cv05";
+  letter-spacing: -0.006em;
+  /* Kein Gummiband-Effekt am oberen Rand: sonst schiebt sich beim Ueberziehen
+     der helle Seitenhintergrund ueber den dunklen Header und die Seite
+     schliesst oben nicht sauber ab. Nebenwirkung: kein Pull-to-Refresh. */
+  overscroll-behavior-y: none;
+}
+
+::selection {
+  background: var(--color-navy-100);
+}
+
+/* Seitlich scrollbare Leisten ohne sichtbaren Balken (Windows zeigt ihn sonst
+   dauerhaft an). Gescrollt werden kann weiterhin – per Wischen oder Shift+Rad. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+/* Dezente Bewegungssprache – respektiert reduzierte Bewegung.
+   Alles hier drin ist Zugabe: faellt es weg, steht die Seite trotzdem
+   vollstaendig und richtig da. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes tick-up {
+    from {
+      opacity: 0;
+      transform: translateY(30%);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Balken wachsen aus dem Nichts - per transform, nicht per width, damit es
+     auch auf aelteren Handys ruhig laeuft. */
+  @keyframes bar-grow {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* Nur fuer den roten Zustand "braucht dich". Atmen duerfen in der App nur
+     zwei Stellen - dieser Punkt und der Trichter-Engpass (engpass-puls,
+     unten) - sonst wird die Seite unruhig. */
+  @keyframes halo {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(255 59 48 / 0.45);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgb(255 59 48 / 0);
+    }
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-rise {
+    animation: rise-in 0.35s ease-out both;
+    /* Listen staffeln sich ueber --rise-delay, gesetzt per style-Attribut. */
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  .animate-tick {
+    animation: tick-up 0.18s ease-out;
+  }
+
+  .animate-bar {
+    transform-origin: left;
+    animation: bar-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  .animate-halo {
+    animation: halo 2.4s ease-out infinite;
+  }
+
+  .animate-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-slate-100) 0%,
+      var(--color-slate-200) 50%,
+      var(--color-slate-100) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  /* Der Ladespruch (LadeSpruch.tsx) taucht weich auf. Ausserhalb dieses
+     Blocks gibt es die Klasse nicht - dann steht der Text einfach da. */
+  @keyframes spruch-auftritt {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-spruch {
+    animation: spruch-auftritt 0.4s ease-out both;
+  }
+
+  /* Der Engpass im Trichter - die einzige Stufe, die von allen Uebergaengen
+     am schwaechsten ist. Anders als halo (Box-Shadow-Ping) atmet hier die
+     Deckkraft selbst: das Segment ist schon rot, der Puls zieht nur die
+     Aufmerksamkeit dorthin, wo es tatsaechlich hakt. */
+  @keyframes engpass-puls {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .animate-engpass {
+    animation: engpass-puls 2.4s ease-in-out infinite;
+  }
+}
+
+/* Druck-Layout (Tätigkeitsbericht als PDF/Ausdruck) */
+@media print {
+  html {
+    /* Auf Papier gibt es keinen Bildschirm, an den sich etwas anpassen
+       koennte - feste 16 px, damit der Ausdruck immer gleich aussieht. */
+    font-size: 16px;
+  }
+
+  body {
+    background: #fff;
+    color: #0f172a;
+  }
+
+  /* Kein Tapeten-Canvas und kein Glas auf Papier - beides ist Bildschirm-Deko
+     und wuerde auf dem Ausdruck nur wie ein Druckfehler aussehen. */
+  body::before {
+    display: none;
+  }
+
+  :root {
+    --color-surface: #fff;
+    --color-canvas: #fff;
+  }
+
+  .glas,
+  .glas-stark {
+    background: #fff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  * {
+    box-shadow: none !important;
+  }
+}
+
+/* Arbeitsansichten: feste, deckende Flächen und dieselben fünf Ziele. */
+/* Die Gesamthöhe umfasst Navigation, Sammelbutton und Safe Area. Auch die
+   Rückgängig- und Auswahlleisten halten genau diesen Bereich frei. */
+.crm-shell { --crm-collection-height: 0rem; --crm-dock-height: calc(4.4rem + 1px + var(--crm-collection-height) + env(safe-area-inset-bottom)); }
+.crm-shell:has(.crm-collection-mobile) { --crm-collection-height: 4.75rem; }
+.crm-main { padding-bottom: calc(var(--crm-dock-height) + 2rem); }
+.crm-dock { position: fixed; inset: auto 0 0; z-index: 30; border-top: 1px solid var(--color-line); background: var(--color-canvas); }
+.crm-collection-action { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 3.5rem; border-radius: 1rem; background: var(--color-akzent); padding: .75rem 1rem; font-size: 1rem; font-weight: 600; color: white; }
+.crm-collection-action:hover { background: var(--color-akzent-stark); }
+.crm-collection-mobile { margin: .75rem 1rem .5rem; }
+.crm-collection-header { display: none; }
+.crm-navigation { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: .4rem .3rem calc(.4rem + env(safe-area-inset-bottom)); }
+.crm-nav-link { min-height: 3.6rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem; border-radius: .9rem; color: var(--color-ink-muted); font-size: .68rem; font-weight: 500; }
+.crm-nav-active { color: #82b3ff; background: var(--color-surface); }
+html:not(.dark) .crm-nav-active { color: #174dab; }
+.crm-nav-link:hover { background: var(--color-surface); }
+.crm-undo { bottom: calc(var(--crm-dock-height) + .5rem); }
+.crm-shell :where(a, button, input, select, textarea):focus-visible { outline: 2px solid #82b3ff; outline-offset: 3px; }
+.crm-list { overflow: hidden; border: 1px solid var(--color-line); border-radius: 1rem; background: var(--color-surface); }
+.crm-list > * + * { border-top: 1px solid var(--color-line); }
+.crm-list-row { display: flex; align-items: center; gap: 1rem; min-height: 4.5rem; padding: 1rem 1.25rem; }
+.crm-list-row:hover { background: var(--color-sunken); }
+.crm-primary-action { display: flex; align-items: center; justify-content: center; gap: .7rem; min-height: 3.5rem; border-radius: 1rem; background: var(--color-akzent); padding: 1rem 1.25rem; font-size: 1rem; font-weight: 600; color: white; }
+.crm-primary-action:hover { background: var(--color-akzent-stark); }
+@media (min-width: 768px) {
+  .crm-dock { position: static; border-top: 0; }
+  .crm-collection-mobile { display: none; }
+  .crm-collection-header { display: flex; min-height: 2.75rem; border-radius: .75rem; font-size: .875rem; }
+  .crm-navigation { display: flex; gap: .5rem; padding: 0 0 .65rem; }
+  .crm-nav-link { flex-direction: row; gap: .65rem; min-height: 2.9rem; padding: .6rem 1.25rem; font-size: .875rem; }
+  .crm-nav-link svg { width: 1.25rem; height: 1.25rem; }
+  .crm-main { padding-bottom: 3rem; }
+  .crm-undo { bottom: 1rem; }
+}
+@media (max-width: 767px) {
+  :where(.crm-shell, [role=dialog]) input:not([type=checkbox]):not([type=radio]), :where(.crm-shell, [role=dialog]) textarea, :where(.crm-shell, [role=dialog]) select { font-size: 16px; }
+}
+@media print { .crm-header, .crm-dock, .crm-undo { display: none !important; } }

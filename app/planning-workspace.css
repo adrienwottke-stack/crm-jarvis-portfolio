@@ -1,0 +1,100 @@
+/* Kalender, Ziele und Partner verwenden die gemeinsamen Arbeitsbereich-Tokens. */
+.crm-calendar, .crm-progress, .crm-team { min-width: 0; width: 100%; }
+.crm-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.crm-calendar-date { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.crm-calendar-date h2 { font-size: 1rem; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.crm-calendar-date-actions { display: flex; align-items: center; gap: 4px; }
+.crm-calendar-step, .crm-calendar-today { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; border: 1px solid var(--color-line-strong); border-radius: 8px; background: var(--color-surface); color: var(--color-ink-muted); }
+.crm-calendar-today { padding-inline: 12px; font-size: .875rem; font-weight: 550; }
+.crm-calendar-step:hover, .crm-calendar-today:hover { color: var(--color-link); background: var(--color-sunken); }
+.crm-calendar-views { flex: 0 1 auto; flex-wrap: wrap; max-width: 100%; }
+.crm-calendar-views a { flex: 1 1 60px; padding-inline: 14px; }
+@media (max-width: 1099px) { .crm-calendar-views { display: none; } }
+.crm-calendar-fallback { display: flex; flex-wrap: wrap; }
+.crm-team-views { flex-wrap: wrap; }
+.crm-team-views a { flex: 1 1 90px; }
+.crm-calendar-content { min-width: 0; }
+.crm-calendar-agenda { display: grid; gap: 24px; }
+.crm-agenda-day-heading { display: flex; align-items: baseline; padding-bottom: 8px; font-size: .875rem; font-weight: 650; }
+.crm-agenda-list { border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); overflow: hidden; }
+.crm-agenda-row { display: flex; gap: 12px; align-items: center; min-height: 76px; padding: 8px 12px; }
+.crm-agenda-row + .crm-agenda-row { border-top: 1px solid var(--color-line); }
+.crm-agenda-time { display: flex; align-items: center; gap: 6px; flex: 0 0 4.25rem; }
+.crm-agenda-time > span:last-child { font-size: .8125rem; }
+.crm-agenda-row-content { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+.crm-agenda-title { display: flex; align-items: center; min-height: 44px; font-size: .9375rem; line-height: 1.35; font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+a.crm-agenda-title:hover { color: var(--color-link); }
+.crm-agenda-meta { font-size: .75rem; line-height: 1.45; color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.crm-agenda-past .crm-agenda-title { color: var(--color-ink-muted); }
+.crm-calendar-empty { padding: 20px; }
+.crm-calendar-empty-day { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 0; color: var(--color-ink-muted); font-size: .875rem; }
+.crm-calendar-connections { margin-top: 24px; }
+.crm-calendar-connections > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 48px; padding: 8px 16px; cursor: pointer; color: var(--color-ink-muted); font-size: .875rem; font-weight: 600; }
+.crm-calendar-connections > summary::after { content: "+"; margin-left: auto; font-size: 1.125rem; }
+.crm-calendar-connections[open] > summary::after { content: "−"; }
+.crm-calendar-connections > div { border-top: 1px solid var(--color-line); padding: 16px; }
+.crm-goals-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.crm-goal-card { overflow-wrap: anywhere; }
+.crm-goal-card-compact { display: grid; align-content: start; gap: 12px; padding: 16px; }
+.crm-goal-card-compact > p { margin: 0; }
+.crm-goal-card-compact .crm-goal-actions { border-top: 1px solid var(--color-line); padding-top: 0; }
+.crm-goal-actions > summary, .crm-planning-details > summary { display: list-item; min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .875rem; font-weight: 600; color: var(--color-link); }
+.crm-goal-actions[open] > summary { margin-bottom: 8px; }
+.crm-planning-details { border-top: 1px solid var(--color-line); }
+.crm-planning-tool-list { border-block: 1px solid var(--color-line); }
+.crm-planning-tool-list > a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; min-height: 60px; padding: 8px 4px; color: var(--color-ink); }
+.crm-planning-tool-list > a + a { border-top: 1px solid var(--color-line); }
+.crm-planning-tool-list > a > span:first-child { font-size: .9375rem; font-weight: 600; }
+.crm-planning-tool-list > a > span:nth-child(2) { grid-column: 1; }
+.crm-planning-tool-list > a > span:last-child { grid-column: 2; grid-row: 1 / 3; color: var(--color-link); }
+.crm-planning-tool-list > a:hover { color: var(--color-link); }
+.crm-planning-inline-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--color-link); font-size: .875rem; font-weight: 600; }
+.crm-planning-action-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 12px 16px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-surface); color: var(--color-link); font-size: .875rem; }
+.crm-team-partner-list { border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); overflow: hidden; }
+.crm-team-partner-row { position: relative; min-width: 0; padding: 10px 16px; }
+.crm-team-partner-row + .crm-team-partner-row { border-top: 1px solid var(--color-line); }
+.crm-team-partner-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; }
+.crm-team-partner-row .crm-team-partner-heading { padding-right: 4.5rem; }
+.crm-team-partner-name { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 1rem; font-weight: 650; color: var(--color-ink); overflow-wrap: anywhere; }
+.crm-team-partner-name:hover { color: var(--color-link); }
+.crm-team-partner-status { font-size: .75rem; color: var(--color-ink-muted); }
+.crm-team-partner-next { font-size: .875rem; color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.crm-team-partner-next a { display: inline-flex; min-height: 44px; align-items: center; color: var(--color-ink-muted); }
+.crm-team-partner-details { margin-top: 0; }
+.crm-team-partner-details > summary { position: absolute; top: 10px; right: 12px; min-height: 44px; min-width: 56px; padding-block: 12px; cursor: pointer; font-size: .8125rem; font-weight: 600; color: var(--color-link); }
+.crm-team-partner-details-full > summary { display: none; }
+.crm-team-partner-detail-body { border-top: 1px solid var(--color-line); padding-top: 12px; padding-bottom: 6px; }
+.crm-team-followup { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.crm-team-utilities { display: flex; flex-wrap: wrap; gap: 4px 20px; border-top: 1px solid var(--color-line); padding-top: 12px; }
+.crm-team-utilities a { display: inline-flex; align-items: center; min-height: 44px; font-size: .875rem; font-weight: 550; color: var(--color-link); }
+.crm-team-empty { padding: 16px; }
+.crm-team-empty h2 { font-size: 1rem; font-weight: 650; }
+.crm-team-footnote { font-size: .75rem; color: var(--color-ink-muted); line-height: 1.6; }
+.crm-team #absprachen-heute { font-size: 1rem; line-height: 1.4; }
+.crm-team-detail :is([aria-label="Kennzahl"], [aria-label="Leistungsumfang"]) { flex-wrap: wrap; max-width: 100%; }
+.crm-team-detail :is([aria-label="Kennzahl"], [aria-label="Leistungsumfang"]) button { min-width: 0; flex: 1 1 auto; }
+.crm-team-detail .crm-partner-step-label { max-width: 100%; }
+.crm-team-detail :is(h2, h3, p, button, a) { overflow-wrap: anywhere; }
+@container (min-width: 760px) {
+  .crm-goals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-planning-tool-list > a { grid-template-columns: minmax(120px, .45fr) minmax(0, 1fr) auto; min-height: 52px; }
+  .crm-planning-tool-list > a > span:nth-child(2) { grid-column: 2; }
+  .crm-planning-tool-list > a > span:last-child { grid-column: 3; grid-row: 1; }
+  .crm-team-partner-row { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(0, 1fr) 4.5rem; align-items: center; column-gap: 16px; min-height: 64px; padding-block: 10px; }
+  .crm-team-partner-row .crm-team-partner-heading { padding-right: 0; }
+  .crm-team-partner-next { grid-column: 2; }
+  .crm-team-partner-details { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .crm-calendar-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .crm-calendar-date { justify-content: space-between; gap: 4px; }
+  .crm-calendar-date h2 { flex: 1 0 100%; }
+  .crm-calendar-date-actions { width: 100%; }
+  .crm-calendar-today { margin-left: auto; }
+  .crm-calendar-views { width: 100%; }
+  .crm-calendar-views a { padding-inline: 8px; }
+  .crm-agenda-row { padding-inline: 10px; gap: 8px; }
+  .crm-agenda-time { gap: 4px; }
+  .crm-agenda-row-content > div:last-child { gap: 4px; }
+  .crm-team-partner-row { padding: 8px 12px; }
+}

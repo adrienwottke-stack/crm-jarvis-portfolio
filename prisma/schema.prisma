@@ -1,0 +1,1985 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- Pipeline ---------------------------------------------------------------
+// Der Kontakt traegt die Phase der Schleife (Name -> kontaktiert -> Termin ->
+// gehalten -> Ergebnis). Der Ausgang liegt getrennt von der Phase, damit
+// sichtbar bleibt, WO ein Kontakt verloren gegangen ist.
+
+// Die fuenf Stufen der Schleife. Mehr gibt es nicht: was danach kaeme, waere
+// Bestandsbetreuung - und die hat ein Partner in Stufe 1 nicht.
+enum ContactStage {
+  NEU // ein Name, mehr noch nicht
+  KONTAKTIERT // erreicht, kein Termin
+  TERMIN_VEREINBART
+  TERMIN_GEHALTEN
+  ABSCHLUSS // das Ergebnis. Bewusst nicht "KUNDE": ein geworbener Partner ist keiner
+}
+
+enum Outcome {
+  OFFEN
+  GEWONNEN
+  VERLOREN
+}
+
+enum LostReason {
+  KEIN_BEDARF
+  KEIN_INTERESSE
+  UNERREICHBAR
+  KONKURRENZ
+  PREIS
+  TERMIN_GEPLATZT
+  SPAETER_NOCHMAL
+  SONSTIGES
+}
+
+// Was die Schleife an Schritten kennt. Mehr Auswahl heisst nicht mehr
+// Genauigkeit, sondern eine Entscheidung mehr vor jedem Speichern.
+enum NextStepType {
+  ANRUF
+  TERMIN
+  NACHFASSEN
+  EMPFEHLUNG_ERFRAGEN
+  SONSTIGES
+}
+
+enum FollowUpStatus {
+  OPEN
+  DONE
+  CANCELED
+}
+
+enum FollowUpSource {
+  WORKFLOW
+  MANUAL
+  AI
+  MIGRATION
+}
+
+enum ActivityType {
+  CALL
+  MEETING
+  EMAIL
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum Arbeitsfokus {
+  AUTO
+  EIGEN
+  AUFBAU
+  FUEHRUNG
+}
+
+// Was eine Fuehrungskraft sich vornimmt. Aus einem Signal entstanden, aber
+// NIE automatisch: dazwischen liegt immer ein Tipp (docs/struktur-plan.md,
+// Abschnitt 5, und audit-kernmodell.md, Abschnitt 9 - "automatisch erzeugte
+// Aufgaben aus Signalen" stehen dort ausdruecklich unter "bewusst nicht
+// gebaut", weil man nach zwei Wochen zweihundert davon hat).
+enum LeadershipTaskType {
+  EINS_ZU_EINS
+  BEGLEITUNG
+  ANRUF
+  SCHULUNG
+  VEREINBARUNG_NACHFASSEN
+  ONBOARDING_CHECK
+  SONSTIGES
+}
+
+// Was eine Fuehrungskraft von einem Berater ihrer Struktur sieht. ZAHLEN ist
+// das Minimum und nicht abwaehlbar - sonst waere die Mannschafts-Uebersicht
+// loechrig und damit wertlos.
+//
+// NAMEN ist die Stufe aus docs/struktur-plan.md 3.2 und gilt dauerhaft. Sie
+// ist NICHT der uebliche Weg: fuer den Fall, um den es wirklich geht - ein
+// frisch gestarteter Partner, der Begleitung braucht - oeffnet sich der
+// Verlauf die ersten Wochen von selbst und schliesst sich danach wieder.
+// Siehe lib/einblick.ts. Wer NAMEN setzt, haelt ihn dauerhaft offen.
+//
+// Keine Stufe zeigt Telefonnummern, E-Mail-Adressen, Berufe oder Notizen.
+// Sichtbar wird ausschliesslich, WEN es betrifft und WAS passiert ist.
+enum TeamVisibility {
+  ZAHLEN // Aktivitaeten, Quoten, Summen
+  PIPELINE // zusaetzlich Phasenverteilung, Fristen, Ueberfaelligkeiten
+  NAMEN // zusaetzlich WEN es betrifft - Kontaktnamen im Verlauf, dauerhaft
+}
+
+// --- Namensliste ------------------------------------------------------------
+// Vorstufe zum vollen CRM: Name, Nummer, Naehe. Kein eigener Datensatz, nur
+// eine schlanke Sicht auf denselben Kontakt.
+
+// Naehe zur Person, nicht Erfolgsaussicht.
+enum ContactRating {
+  A // enger Kreis: Familie, beste Freunde
+  B // Bekannte: Kollegen, Verein, Nachbarn
+  C // lose Kontakte
+}
+
+enum ListKind {
+  RECRUITING
+  VERKAUF
+}
+
+// Fortsetzungsstand: fachliche Checkpoints, getrennt von onboardingSteps (Messung).
+model StartProgress {
+  userId         String    @id
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version        Int       @default(1)
+  revision       Int       @default(0)
+  phase          String    @default("INTRO")
+  paused         Boolean   @default(false)
+  kind           ListKind?
+  collectionId   String?
+  introAct       String    @default("chat")
+  answers        Json      @default("{}")
+  stornoChoices  String[]  @default([])
+  stornoSkipped  Boolean   @default(false)
+  sprintEndAt    DateTime?
+  phoneSkipped   String[]  @default([])
+  plannedAt      DateTime?
+  milestones     Json      @default("{}")
+  // Mini-Emil: explanations are separate from real work and survive devices.
+  coachSeen      String[]  @default([])
+  coachContactId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model NameCollection {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        ListKind
+  scene       String          @default("familie")
+  revision    Int             @default(0)
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  operations  NameOperation[]
+
+  @@index([userId, kind, completedAt])
+}
+
+// Ein Vorgangsschlüssel schützt auch bei verlorener HTTP-Antwort vor doppelten Aktivitäten.
+model NameOperation {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key          String
+  fingerprint  String
+  contactId    String?
+  contact      Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  collectionId String?
+  collection   NameCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  scene        String?
+  kind         ListKind
+  result       String
+  createdAt    DateTime        @default(now())
+
+  @@unique([userId, key])
+  @@index([collectionId])
+}
+
+model Contact {
+  zinsSzenarien  ZinsSzenario[]
+  nameOperations NameOperation[]
+  id             String          @id @default(cuid())
+  name           String
+  phone          String?
+  email          String?
+  source         String?
+  note           String?
+
+  // Beruf als Freitext, im Formular ueber Bausteine ("Student", "Azubi", ...)
+  // mit einem Tipp gefuellt. Bewusst kein Aufzaehlungstyp: die haeufigen Faelle
+  // deckt die Baustein-Leiste ab, alles andere wird getippt.
+  job String?
+
+  stage      ContactStage @default(NEU)
+  outcome    Outcome      @default(OFFEN)
+  lostReason LostReason?
+  lostAt     DateTime?
+
+  // Namensliste: leere listKinds heisst "steht nicht auf der Liste", der
+  // Kontakt ist dann ein normaler CRM-Kontakt.
+  rating    ContactRating?
+  listKinds ListKind[]
+
+  // Genau ein offener naechster Schritt je Kontakt.
+  nextStepType NextStepType?
+  nextStepAt   DateTime?
+  nextStepNote String?
+
+  appointmentAt DateTime? // naechster Termin, mit Uhrzeit
+
+  // Wann nach Empfehlungen gefragt wurde. Bewusst ein Zeitstempel und keine
+  // Phase: die Frage gehoert an JEDEN gehaltenen Termin, nicht an das Ende des
+  // Trichters. Als Phase waere sie nur einmal je Kontakt moeglich gewesen -
+  // und erst nach einem Abschluss.
+  referralsAskedAt DateTime?
+
+  // Zeitstempel gegen doppelte Wettbewerbspunkte: Termin vereinbart, Termin
+  // gehalten, Abschluss - jeder Punkt faellt genau einmal je Kontakt.
+  appointmentLoggedAt     DateTime?
+  appointmentHeldLoggedAt DateTime?
+  wonLoggedAt             DateTime?
+
+  // Wann dem Empfehlungsgeber zurueckgemeldet wurde, was aus SEINER
+  // Empfehlung geworden ist. Steht am Empfohlenen und nicht am Geber - derselbe
+  // Grund wie bei appointmentHeldLoggedAt: ein Ereignis, ein Stempel, genau
+  // einmal. Am Geber koennten zehn Empfehlungen haengen, von denen neun noch
+  // offen sind.
+  //
+  // Die Rueckmeldung ist der Grund, aus dem jemand ein ZWEITES Mal empfiehlt.
+  // Ohne sie hoert der Geber nie wieder etwas von dem Namen, den er gegeben hat.
+  referralFeedbackAt DateTime?
+
+  // Ein Formular = ein Kontakt. Jedes gerenderte Anlege-Formular bringt einen
+  // eigenen Schluessel mit; der eindeutige Index laesst den zweiten Klick
+  // auflaufen, statt eine Dublette anzulegen. NULL bleibt erlaubt (Import,
+  // Namensliste, Altdaten) – Postgres zaehlt NULLs nicht als Dubletten.
+  formToken String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Letzter echter Fortschritt an diesem Menschen: Anlage, Vermerk,
+  // Phasenwechsel, bewusstes Vertagen. Ausdruecklich NICHT updatedAt - eine
+  // nachgetragene Nummer oder eine umgehaengte Liste bumpt updatedAt, ohne
+  // dass der Mensch etwas gehoert hat. Genau daran wuerde der Liegenbleiber-
+  // Alarm verstummen (siehe lib/liegenbleiber.ts).
+  lastProgressAt DateTime @default(now())
+
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  referredById String?
+  referredBy   Contact?  @relation("Empfehlung", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    Contact[] @relation("Empfehlung")
+
+  activities            Activity[]
+  stageEvents           StageEvent[]
+  einheitenErinnerungen EinheitenErinnerung[]
+  kandidaturen          Kandidatur[]
+  followUps             ContactFollowUp[]
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, nextStepAt])
+  @@index([ownerId, lastProgressAt])
+  @@index([ownerId, stage, outcome])
+  @@index([ownerId, rating])
+  @@index([referredById])
+}
+
+// Mehrere Erinnerungen duerfen parallel offen sein. Die frueheste offene
+// Wiedervorlage wird materialisiert und auf Contact.nextStep* gespiegelt,
+// solange die alten CRM-Lesepfade noch auf diesen Kompatibilitaetsfeldern
+// arbeiten.
+model ContactFollowUp {
+  id                   String         @id @default(cuid())
+  contactId            String
+  contact              Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  ownerId              String
+  owner                User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  type                 NextStepType
+  at                   DateTime
+  note                 String?
+  status               FollowUpStatus @default(OPEN)
+  source               FollowUpSource @default(MANUAL)
+  isPrimary            Boolean        @default(false)
+  completedAt          DateTime?
+  canceledAt           DateTime?
+  createdByAiRequestId String?
+  createdByAiRequest   AiRequest?      @relation(fields: [createdByAiRequestId], references: [id], onDelete: SetNull)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([ownerId, status, at])
+  @@index([contactId, status, at])
+  @@index([createdByAiRequestId])
+}
+
+// Phasenhistorie: Grundlage fuer die Kennzahlen der Schleife.
+model StageEvent {
+  id                  String               @id @default(cuid())
+  contactId           String?
+  contact             Contact?             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  fromStage           String?
+  toStage             String
+  at                  DateTime             @default(now())
+  userId              String?
+  user                User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  einheitenErinnerung EinheitenErinnerung?
+
+  // Gesetzt, wenn das Ereignis zu einer Kandidatur gehoert (Aufbau-Trichter,
+  // docs/recruiting-plan.md §6). Ab Tag 1 mitgeschrieben: die Historie laesst
+  // sich billig anlegen und nie nachtragen. Cascade wie beim Contact - loescht
+  // jemand die Kandidatur, nimmt sie ihre Historie mit.
+  kandidaturId String?
+  kandidatur   Kandidatur? @relation(fields: [kandidaturId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, at])
+  @@index([kandidaturId, at])
+}
+
+model User {
+  leadershipNotes             LeadershipNote[] @relation("LeadershipNoteOwner")
+  leadershipNotesAbout        LeadershipNote[] @relation("LeadershipNotePartner")
+  zinsSzenarien                ZinsSzenario[]
+  startProgress                StartProgress?
+  nameCollections              NameCollection[]
+  nameOperations               NameOperation[]
+  id                           String                @id @default(cuid())
+  name                         String
+  arbeitsfokus                 Arbeitsfokus          @default(AUTO)
+  eigeneZiele                  Ziel[]                @relation("ZielInhaber")
+  erstellteZiele               Ziel[]                @relation("ZielErsteller")
+  zielBeteiligungen            ZielBeteiligung[]
+  teamziele                    Teamziel[]            @relation("TeamzielWurzel")
+  verantworteteTeamziele       Teamziel[]            @relation("TeamzielVerantwortlich")
+  hauptzielId                  String?
+  hauptziel                    Ziel?                 @relation("Hauptziel", fields: [hauptzielId], references: [id], onDelete: SetNull)
+  einheitenErinnerungen        EinheitenErinnerung[]
+  vereinbarungenInitiiert      PartnerVereinbarung[] @relation("VereinbarungInitiiert")
+  vereinbarungenEmpfangen      PartnerVereinbarung[] @relation("VereinbarungEmpfangen")
+  vereinbarungenVerantwortlich PartnerVereinbarung[] @relation("VereinbarungVerantwortlich")
+
+  // --- Platzhalter (docs/struktur-plan.md, Abschnitt 2) ----------------------
+  // Ein Konto OHNE Zugangsdaten ist ein Platzhalter: jemand, der in der
+  // Struktur steht, sie aber noch nicht nutzt. Beim Ausrollen auf ein Team ist
+  // die Struktur vorher da - Emil, vier Leute unter ihm, die Ebene darueber -
+  // und sie soll vorher stehen koennen, nicht erst wenn der Letzte eine
+  // Einladung eingeloest hat.
+  //
+  // Bewusst KEIN eigenes Modell: als User ohne Passwort traegt der ganze
+  // Baum-Apparat unveraendert - path, lib/scope.ts, mannschaftsLage,
+  // umhaengen. Ein zweites Modell muesste an jeder dieser Stellen mit dem
+  // ersten zusammengefuehrt werden.
+  //
+  // Und bewusst KEIN zusaetzliches Kennzeichen: Platzhalter ist, wer keinen
+  // passwordHash hat. Ein Boolean daneben koennte falsch stehen, dieser
+  // Zustand nicht. Derselbe Grund, aus dem "Fuehrungskraft" keine Rolle ist.
+  //
+  // Wer hier NULL stehen hat, kommt nirgends hinein: der Riegel sitzt in
+  // app/login/actions.ts und in der Passwort-Zuruecksetzung.
+  email        String? @unique
+  passwordSalt String?
+  passwordHash String?
+
+  role      UserRole @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  // Die eigene, freiwillige Nummer für den Anruf durch die Führungskraft.
+  // Die Person selbst und Führungskräfte ihres aktuellen Astes können sie
+  // pflegen (docs/struktur-verwaltung-umsetzung.md). Ohne Nummer fehlt der
+  // Anruf-Knopf; die Nummer ist keine Voraussetzung für die Nutzung.
+  phone String?
+
+  // Erster Start vom Startbildschirm aus. NULL = arbeitet noch im Browser-Tab.
+  // Einmal gesetzt, danach nie wieder angefasst: damit steht in der Mannschaft,
+  // wer die App wirklich auf dem Handy hat - und wer sie wieder geloescht hat.
+  installedAt DateTime?
+
+  // --- Struktur (docs/struktur-plan.md, Abschnitt 2) -------------------------
+  // Fuehrungskraft ist keine Rolle, sondern eine Position: wer Direkte unter
+  // sich hat, fuehrt. Kein zweites Kennzeichen, das falsch stehen kann.
+  leaderId String?
+  leader   User?   @relation("Struktur", fields: [leaderId], references: [id], onDelete: SetNull)
+  team     User[]  @relation("Struktur")
+
+  // Materialisierter Pfad mit fuehrendem und schliessendem Schraegstrich und
+  // der eigenen Id am Ende: "/clx1/clx7/". "Ich und alles unter mir" ist damit
+  // ein startsWith mit Index statt einer rekursiven Abfrage, die Prisma nicht
+  // kann. Wird NIE direkt geschrieben, nur ueber lib/struktur.ts.
+  path String @default("/")
+
+  // Wer geworben hat. Reine Information, an der keine Logik haengt - gefuehrt
+  // wird ueber leaderId, und die beiden fallen im Strukturvertrieb auseinander.
+  recruitedById String?
+  recruitedBy   User?   @relation("Werbung", fields: [recruitedById], references: [id], onDelete: SetNull)
+  recruited     User[]  @relation("Werbung")
+
+  startedAt  DateTime? // Eintritt: Grundlage fuer "neu" und die 90-Tage-Sicht
+  visibility TeamVisibility @default(PIPELINE)
+
+  // Ausgetretene bleiben im Baum, damit die Historie stimmt, zaehlen aber in
+  // keiner laufenden Auswertung mehr mit.
+  deactivatedAt DateTime?
+
+  // --- Einheiten und Karrierestufe (docs/einheiten-plan.md) ------------------
+  // Die Zahl, in der der Betrieb rechnet - anders als die Taetigkeiten, die
+  // das Werkzeug bisher zaehlt.
+  //
+  // Karrierestufe pflegen die Person selbst oder ihre Führungskräfte. NULL
+  // heisst "nicht eingetragen" und wird NIE auf 1 vorbelegt: eine geratene
+  // Stufe stellt jemanden in die falsche Runde, und dort stuenden dann fremde
+  // Zahlen neben seinem Namen.
+  //
+  // "Karrierestufe" und nicht "Stufe", weil lib/stufen.ts das Wort im selben
+  // Bereich schon belegt (Anwaerter bis Veteran, gerechnet aus
+  // Wettbewerbspunkten, sichtbar auf /spiel).
+  //
+  // Die SPALTE heisst weiterhin "kernstufe": so hiess das Feld, als die
+  // Migration 20260825235000_einheiten lief, und die ist gefahren. Ein
+  // Umbenennen in der Datenbank braechte nichts, was den Eingriff wert waere -
+  // gelesen wird der Name hier, und hier steht er richtig.
+  karrierestufe Int? @map("kernstufe")
+
+  // Was vor der App schon stand, in Hundertsteln. Niemand traegt drei Jahre
+  // nach: eine Zahl, danach laufen die Buchungen.
+  einheitenStart Int @default(0)
+
+  // --- Willkommen (docs/willkommen-plan.md) ----------------------------------
+  // NULL = hat den Start noch nie gesehen. Einmalig gesetzt, danach nie wieder
+  // automatisch. Bewusst kein Schritt-Zaehler: wer mittendrin abbricht, faengt
+  // von vorn an - bei drei Minuten ist das die richtige Antwort.
+  onboardingDoneAt    DateTime?
+  onboardingStartedAt DateTime?
+  // Messen statt hoffen: je Akt ein Zeitstempel ("chat": "...", "sprint": ...).
+  // Ohne das laesst sich nie sagen, WO die Leute aussteigen.
+  onboardingSteps     Json?
+
+  // Die Weiche vom Start: Kunden gewinnen (VERKAUF) oder Team aufbauen
+  // (RECRUITING). Steuert Leitfaden, Einwaende und die Liste des Sprints.
+  startTrack ListKind?
+
+  // Der Brief an sich selbst: warum er das macht, in eigenen Worten. Kommt
+  // genau einmal zurueck - in dem Moment, in dem er hinschmeissen will
+  // (14 Tage dabei, eine Woche Stille). whyShownAt haelt fest, dass der
+  // Moment verbraucht ist.
+  whyLetter  String?
+  whyShownAt DateTime?
+
+  // Das 30-Tage-Versprechen: selbst gesetztes Terminziel. Steht ab dann jeden
+  // Tag auf /heute, an Tag 30 kommt die Abrechnung (pledgeShownAt = gesehen).
+  pledgeTarget  Int?
+  pledgeSetAt   DateTime?
+  pledgeShownAt DateTime?
+
+  // Aus welcher Einladung dieses Konto entstand. Ersetzt fuer Mehrfach-Codes
+  // (QR am Infoabend) die alte 1:1-Rueckverknuepfung Invite.usedById.
+  herkunftId String?
+  herkunft   Invite? @relation("Herkunft", fields: [herkunftId], references: [id], onDelete: SetNull)
+
+  contacts        Contact[]
+  person          Person?
+  einheiten       Einheitenbuchung[]
+  stageEvents     StageEvent[]
+  undoEntries     UndoEntry[]
+  pushAbos        PushAbo[]
+  releaseAcknowledgements ReleaseAcknowledgement[]
+  releaseEvents           ReleaseEvent[]
+  releaseDeliveries       ReleaseDelivery[]
+  passwortResets  PasswortReset[]
+  avvZustimmungen AvvAcceptance[]
+  rueckmeldungen  Rueckmeldung[]
+
+  // --- AI CRM Add-on -------------------------------------------------------
+  // Beta ist eine ausdrueckliche Freischaltung. Bezahlter Zugang steht
+  // getrennt in AiSubscription, damit Stripe-Zustaende nicht ueber das
+  // Benutzerkonto verteilt werden.
+  aiBetaEnabled  Boolean         @default(false)
+  aiSubscription AiSubscription?
+  aiUsage        AiUsage[]
+  aiMemoryEntries AiMemoryEntry[]
+  workTasks CrmWorkTask[]
+  contactCohorts CrmContactCohort[]
+  aiAuditEvents  AiAuditEvent[]
+  contactFollowUps ContactFollowUp[]
+  aiConversations  AiConversation[]
+  aiRequests       AiRequest[]
+  aiToolExecutions AiToolExecution[]
+  aiLiveSessions   AiLiveSession[]
+  spotifyConnection SpotifyConnection?
+  spotifyOAuthStates SpotifyOAuthState[]
+
+  // --- Kalender (docs/struktur-plan.md, Abschnitt 7) -------------------------
+  // Der Abo-Schluessel fuer den ICS-Feed. NULL = noch kein Abo erzeugt. Ein
+  // undurchsichtiges Zufallswort und kein signiertes Kuerzel, weil es sich so
+  // zurueckziehen laesst: neuer Schluessel, alter Link tot.
+  feedToken String? @unique
+  // Stehen Kundennamen im Feed? Voreinstellung NEIN. Wer einen Termin aus dem
+  // Handy-Kalender von Hand in einen GETEILTEN TimeTree-Kalender kopiert,
+  // zeigt den Namen sonst allen Mitgliedern. Wer Namen will, schaltet sie frei.
+  feedNamen Boolean @default(false)
+
+  // Der Schluessel des teilbaren Struktur-Berichts (docs/adr/0002): dieselbe
+  // Bauart wie feedToken - undurchsichtiges Zufallswort, zurueckziehbar durch
+  // Erneuern. NULL = noch nie einen Berichts-Link erzeugt. Der Bericht zeigt
+  // ausschliesslich indexierte Verlaeufe und Zaehlwerte, nie Kundendaten und
+  // nie absolute Einheiten.
+  berichtToken String? @unique
+
+  termine         Termin[]
+  kalenderquellen Kalenderquelle[]
+
+  fuehrungsAufgaben LeadershipTask[] @relation("Fuehrt")
+  betrifftMich      LeadershipTask[] @relation("Betrifft")
+
+  nachrichtenGesendet  Nachricht[]  @relation("NachrichtVon")
+  nachrichtenErhalten  Nachricht[]  @relation("NachrichtAn")
+  invites              Invite[]     @relation("Einladender")
+  invite               Invite?      @relation("Eingeloest")
+  platzhalterEinladung Invite?      @relation("Platzhalter")
+  kandidaturen         Kandidatur[]
+  geworbenAus          Kandidatur?  @relation("Geworben")
+
+  @@index([leaderId])
+  @@index([path])
+}
+
+// Der externe Billing-Zustand in der kleinsten Form, die fuer Entitlement,
+// Kuendigung zum Periodenende und idempotente Webhooks gebraucht wird.
+model AiSubscription {
+  userId            String    @id
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String    @default("stripe")
+  customerId        String?   @unique
+  subscriptionId    String?   @unique
+  priceId           String?
+  status            String    @default("INACTIVE")
+  currentPeriodEnd  DateTime?
+  cancelAtPeriodEnd Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, currentPeriodEnd])
+}
+
+// Rohmessung je Provider-Aufruf. Keine Prompts, Transkripte oder CRM-Dumps:
+// die Kostenanalyse braucht Mengen, nicht die personenbezogenen Inhalte.
+model AiUsage {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId           String
+  kind                String
+  provider            String   @default("openai")
+  model               String?
+  inputTokens         Int      @default(0)
+  outputTokens        Int      @default(0)
+  audioSeconds        Float    @default(0)
+  toolCalls           Int      @default(0)
+  estimatedCostMicros Int      @default(0)
+  // NULL means unpriced/incomplete; a historic zero is not a free provider call.
+  pricedCostMicros    Int?
+  pricingVersion     String?
+  providerAttempts   Int      @default(0)
+  meteringComplete   Boolean  @default(false)
+  workTaskId         String?
+  workTask           CrmWorkTask? @relation(fields: [workTaskId], references: [id], onDelete: SetNull)
+  durationMs          Int?
+  status              String   @default("STARTED")
+  errorCode           String?
+  createdAt           DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([requestId])
+}
+
+// Sieben Tage gueltiger Arbeitskontext. Das Ablaufdatum bleibt ab dem ersten
+// Satz fest und wird durch spaetere Nachrichten nicht verlaengert.
+enum AiExecutionMode {
+  READ_ONLY
+  CONFIRM
+  AUTONOMOUS
+}
+
+model AiMemoryEntry {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind String
+  content String
+  sourceType String
+  sourceId String?
+  sourceLabel String
+  sourceUpdatedAt DateTime?
+  confirmedAt DateTime
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, updatedAt])
+}
+
+// Explicit business work, independent of chat request retention. No prompt archive.
+model CrmWorkTask {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientTaskId String
+  kind String
+  route String
+  contactId String
+  status String @default("STARTED")
+  appVersion String
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  reviewedAt DateTime?
+  resultCorrect Boolean?
+  nextActionRequired Boolean?
+  nextActionCorrect Boolean?
+  proof Json?
+  errorCode String?
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  attempts CrmWorkAttempt[]
+  usages AiUsage[]
+  @@unique([userId, clientTaskId])
+  @@index([userId, startedAt])
+  @@index([userId, status])
+}
+
+model CrmWorkAttempt {
+  id String @id @default(cuid())
+  taskId String
+  task CrmWorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requestId String @unique
+  kind String
+  startedAt DateTime @default(now())
+  @@index([taskId, startedAt])
+}
+
+// Contact identity snapshots keep the eligible denominator after contact deletion.
+model CrmContactCohort {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactId String
+  origin String
+  eligible Boolean
+  exclusionReason String?
+  registeredAt DateTime
+  firstConfirmedContactAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([userId, contactId])
+  @@index([userId, registeredAt])
+}
+
+model CrmContactPilot {
+  id String @id @default(cuid())
+  ownerId String
+  // Immutable coordinator snapshot, independent of account deletion.
+  joinCode String @unique
+  weekOne String
+  weekTwo String
+  status String @default("DRAFT")
+  startedAt DateTime?
+  reviewedAt DateTime?
+  frozenParticipantIds Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  participants CrmPilotParticipant[]
+  observations CrmPilotObservation[]
+  @@index([ownerId, createdAt])
+}
+
+// Deliberately no User FK: deletion must not change the five-person denominator.
+model CrmPilotParticipant {
+  id String @id @default(cuid())
+  pilotId String
+  pilot CrmContactPilot @relation(fields: [pilotId], references: [id], onDelete: Cascade)
+  userId String
+  alias String
+  consentedAt DateTime
+  withdrawnAt DateTime?
+  suitableDays Json
+  createdAt DateTime @default(now())
+  @@unique([pilotId, userId])
+}
+
+model CrmPilotObservation {
+  id String @id @default(cuid())
+  pilotId String
+  pilot CrmContactPilot @relation(fields: [pilotId], references: [id], onDelete: Cascade)
+  participantId String
+  taskId String? @unique
+  // Pilot-local contact snapshot survives source/account deletion without exporting identity.
+  contactKey String?
+  kind String
+  occurredAt DateTime
+  conversationKind String?
+  conversationConfirmed Boolean @default(false)
+  resultCorrect Boolean @default(false)
+  nextActionRequired Boolean @default(false)
+  nextActionCorrect Boolean @default(false)
+  hurdle String?
+  createdAt DateTime @default(now())
+  @@index([pilotId, occurredAt])
+}
+
+model AiConversation {
+  executionMode AiExecutionMode @default(CONFIRM)
+  executionVersion Int @default(0)
+  id        String                  @id @default(cuid())
+  userId    String
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  startedAt DateTime                @default(now())
+  expiresAt DateTime
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  messages  AiConversationMessage[]
+  requests  AiRequest[]
+  liveSessions AiLiveSession[]
+
+  @@index([userId, expiresAt, updatedAt])
+}
+
+// Kurzlebige Steuerdaten einer bewusst gestarteten Live-Sprachrunde. Audio,
+// Teiltranskripte, Prompts und Provider-Rohereignisse gehoeren absichtlich
+// nicht in dieses Modell. Sichtbare finale Sätze bleiben ausschliesslich in
+// der zugeordneten, nach sieben Tagen geloeschten Unterhaltung.
+model AiLiveSession {
+  introState         String          @default("WAITING")
+  revision           Int             @default(0)
+  reconnectCount     Int             @default(0)
+  turnCount          Int             @default(0)
+  id                 String          @id @default(cuid())
+  userId             String
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId     String?
+  conversation       AiConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  provider           String
+  status             String          @default("ACTIVE")
+  // Fuer eine aktive Session steht hier die userId. Ein UNIQUE-Index bildet
+  // die Multi-Tab-Sperre ab, bei terminalen Sessions ist der Wert NULL.
+  activeKey          String?         @unique
+  // Vom Browser erzeugte, inhaltsfreie UUID. Nur dieselbe Browserinstanz darf
+  // einen verlorenen Start-Request idempotent wiederholen; ein zweiter Tab
+  // bekommt keinen Zugriff auf die offene Runde.
+  clientSessionId    String
+  providerSessionRef String?
+  usageId            String?
+  startedAt          DateTime        @default(now())
+  lastHeartbeatAt    DateTime?
+  expiresAt          DateTime
+  endedAt            DateTime?
+  errorCode          String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([userId, status, expiresAt])
+  @@unique([userId, clientSessionId])
+  @@index([conversationId])
+}
+
+// Die Spotify-Verbindung gehoert immer genau einem CRM-Konto. Es gibt weder
+// ein gemeinsam genutztes Dienstkonto noch gespeicherte Geraete, Tracks oder
+// Zugangsdaten im Klartext: fuer spaetere Refreshes reicht das verschluesselte
+// Refresh-Token und der beim Consent erteilte Scope.
+model SpotifyConnection {
+  userId             String @id
+  user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenCipher String
+  scopes             String
+  lastErrorCode      String?
+  connectedAt        DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// Ein nur kurz gueltiger, gehashter OAuth-State bindet den Spotify-Rueckweg
+// an das angemeldete CRM-Konto. Der Klartext erscheint einzig in der
+// einmaligen Authorization-URL und wird weder in der Datenbank noch im Log
+// gespeichert.
+model SpotifyOAuthState {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stateHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model AiConversationMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  source         String?
+  content        String
+  actions        Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// Nutzerseitige Wiederholungen werden ueber clientRequestId dedupliziert. Die
+// Antwort ist nur solange wie der zugehoerige Kurzzeitkontext abrufbar.
+model AiRequest {
+  executionMode AiExecutionMode?
+  id               String            @id @default(cuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientRequestId  String
+  kind             String
+  inputHash        String
+  status           String            @default("IN_PROGRESS")
+  conversationId   String?
+  conversation     AiConversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  response         Json?
+  errorCode        String?
+  startedAt        DateTime          @default(now())
+  finishedAt       DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  toolExecutions   AiToolExecution[]
+  createdFollowUps ContactFollowUp[]
+
+  @@unique([userId, clientRequestId])
+  @@index([expiresAt])
+  @@index([conversationId])
+}
+
+model AiToolExecution {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId      String
+  request        AiRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  idempotencyKey String
+  tool           String
+  status         String    @default("IN_PROGRESS")
+  result         Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([requestId])
+}
+
+// Nachvollziehbarkeit schreibender AI-Aktionen. Vorher/Nachher enthalten nur
+// die fuer Undo oder Diagnose noetigen Felder, nie komplette Datensaetze.
+model AiAuditEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId  String
+  sessionId  String?
+  action     String
+  entityType String?
+  entityId   String?
+  success    Boolean
+  before     Json?
+  after      Json?
+  errorCode  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([requestId])
+}
+
+// Stripe liefert dasselbe Ereignis erneut, bis es bestaetigt wurde. Der
+// Provider-Schluessel ist deshalb der Primaerschluessel und die Verarbeitung
+// kann sicher genau einmal beansprucht werden.
+model AiWebhookEvent {
+  providerEventId String    @id
+  type            String
+  status          String    @default("PROCESSING")
+  attempts        Int       @default(1)
+  lastAttemptAt   DateTime  @default(now())
+  lastErrorCode   String?
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+// Eine gemeldete Einheiten-Menge mit einem Datum daran (docs/einheiten-plan.md).
+//
+// Bewusst KEINE Umsatzrechnung: Sparte, Monatsbeitrag, Laufzeitfaktoren und
+// "100 Euro = 82 Einheiten" sind beim Kernmodell-Rueckbau rausgeflogen
+// (docs/audit-kernmodell.md, 3.11 - "Umsatzbewertung ist Reporting") und kommen
+// nicht wieder. Was hier steht, ist naeher an einem Tacho als an einer
+// Buchhaltung: eine Zahl, die jemand von sich aus meldet.
+//
+// HUNDERTSTEL ALS GANZE ZAHL, kein Decimal. Prismas Decimal ist eine
+// Klasseninstanz und ueberlebt die Grenze zu einer Client-Komponente nicht
+// ("Only plain objects can be passed"). Ganze Zahlen rechnen exakt und wandern
+// ueberall durch; die einzige Stelle, an der aus "3,5" eine 350 wird, steht in
+// lib/einheiten.ts.
+//
+// Am User und nicht an der Person: Person ist die Wettbewerbs-Identitaet, an
+// der DailyLog haengt - dort etwas anzubauen waere der kurze Weg, Einheiten
+// doch noch in die Punktewertung zu ziehen. Und die Karrierestufe sitzt am Konto.
+model Einheitenbuchung {
+  erinnerung EinheitenErinnerung?
+  id         String               @id @default(cuid())
+  userId     String
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Negativ ist erlaubt und kein Fehler: ein Storno ist in diesem Beruf der
+  // Normalfall, nicht die Ausnahme.
+  hundertstel Int
+
+  // Berliner Kalendertag als UTC-Mitternacht, wie DailyLog.date. Die Buchung
+  // traegt ein Datum und KEINE Monatszuordnung - damit laesst sich der Schnitt
+  // des Produktionsmonats spaeter aendern, ohne Daten anzufassen.
+  tag   DateTime
+  notiz String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, tag])
+}
+
+// Einladung in die Struktur. Ein Code, eine Nutzung: der Neue setzt Name,
+// E-Mail und Passwort selbst und haengt danach unter dem Einladenden. Ohne das
+// muesste jedes Konto ueber den Admin laufen und Startpasswoerter wanderten
+// per Nachricht durchs Netzwerk.
+model Invite {
+  id       String @id @default(cuid())
+  code     String @unique
+  leaderId String
+  leader   User   @relation("Einladender", fields: [leaderId], references: [id], onDelete: Cascade)
+
+  note      String? // "Max aus dem Infoabend"
+  expiresAt DateTime
+
+  // Fuer wen die Einladung ist, wenn die Person schon als Platzhalter im Baum
+  // steht. Gesetzt heisst: beim Einloesen entsteht KEIN neues Konto, sondern
+  // dieser Knoten bekommt Zugangsdaten. Der Mensch behaelt damit seinen Platz
+  // in der Struktur - und alles, was schon an ihm haengt.
+  //
+  // Einmalig: ein Platzhalter hat hoechstens eine offene Einladung. Zwei
+  // Codes auf denselben Knoten waeren zwei Wege in dasselbe Konto.
+  fuerId String? @unique
+  fuer   User?   @relation("Platzhalter", fields: [fuerId], references: [id], onDelete: Cascade)
+
+  // Der Platzhalter ist MIT dieser Einladung entstanden ("Person aufnehmen"
+  // mit gesetztem Haken). Dann ist die Einladung der einzige Grund, aus dem
+  // der Knoten ueberhaupt im Baum steht - und Zuruecknehmen nimmt ihn mit.
+  // Ohne das bleibt nach jeder zurueckgenommenen Einladung ein Kasten "noch
+  // nicht eingeladen" im Organigramm stehen, den niemand mehr wegbekommt.
+  //
+  // Wer die Struktur zuerst eintraegt und Tage spaeter einlaedt, faellt
+  // ausdruecklich NICHT darunter: dort ist der Knoten aelter als jede
+  // Einladung und bleibt beim Zuruecknehmen stehen.
+  platzhalterAngelegt Boolean @default(false)
+
+  // Notausgang aus der Installations-Schleuse: normalerweise erscheint das
+  // Anmeldeformular erst, wenn die Seite vom Startbildschirm laeuft. Laesst
+  // sich ein Geraet partout nicht dazu bewegen, gibt der Einladende diese eine
+  // Einladung frei. Setzt nie der Eingeladene.
+  browserFreigabe Boolean @default(false)
+
+  // Persoenliche erste Chatnachricht im Willkommens-Ablauf: "Max, du hast
+  // gesagt du willst raus aus dem Lager. Los geht's." Kein Template schlaegt das.
+  greeting String?
+
+  // Der Einsatz des Einladenden fuer die Startwoche ("Essen geht auf mich").
+  // Steht sichtbar auf dem Starterpass.
+  stake String?
+
+  // Wie oft der Code einloesbar ist. 1 = klassischer Einzel-Link,
+  // NULL = unbegrenzt (QR-Code am Infoabend, zwanzig Handys gleichzeitig).
+  maxUses   Int? @default(1)
+  usedCount Int  @default(0)
+
+  // Erste Einloesung - bleibt fuer Einzel-Links erhalten. Welche Konten aus
+  // einem Mehrfach-Code entstanden, steht an User.herkunftId.
+  usedById String?   @unique
+  usedBy   User?     @relation("Eingeloest", fields: [usedById], references: [id], onDelete: SetNull)
+  usedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  angekommene User[]      @relation("Herkunft")
+  kandidatur  Kandidatur?
+
+  @@index([leaderId, createdAt])
+}
+
+// --- Aufbau: die Kandidatur (docs/recruiting-plan.md, §6) ---------------------
+// Der Mensch bleibt ein Contact - Name und Nummer stehen laengst in der
+// Namensliste, und eine zweite Tabelle mit demselben Menschen waere eine zweite
+// Wahrheit bei der Telefonnummer. Alles BEWERBERSPEZIFISCHE liegt hier: Motiv,
+// Situation, Verlauf, Ablehnungsgrund. Diese Tabelle taucht in KEINEM
+// Kundenexport auf (lib/export.ts laesst sie bewusst aus) und ersetzt das
+// geplante Modell "Recruit" aus docs/struktur-plan.md §6.
+
+enum KandidaturPhase {
+  KONTAKT
+  ANGESPROCHEN
+  INFO_VEREINBART
+  INFO_GEHALTEN
+  ENTSCHEIDUNG
+  ZUSAGE
+  GESTARTET
+}
+
+model Kandidatur {
+  id        String  @id @default(cuid())
+  contactId String // die Person steht weiter im Contact
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  ownerId   String // der Werbende
+  owner     User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  phase      KandidaturPhase @default(KONTAKT)
+  outcome    Outcome         @default(OFFEN)
+  lostReason LostReason?
+
+  // Was im Gespraech wirklich zaehlt - und was in KEINEN Kundenexport gehoert.
+  motiv     String? // "will raus aus dem Lager"
+  situation String? // Beruf, Zeitfenster, Familie
+
+  nextStepType NextStepType?
+  nextStepAt   DateTime?
+  nextStepNote String?
+
+  // Beim Zusage-Knopf erzeugt: die Kandidatur haelt ihre Einladung fest, damit
+  // "eingeloest" ohne Suche ablesbar ist. SetNull, nicht Cascade - eine
+  // zurueckgenommene Einladung loescht keinen Bewerbungs-Verlauf.
+  inviteId String? @unique
+  invite   Invite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+
+  // Die Naht zur Mannschaft: aus diesem Bewerber wurde dieses Konto.
+  becameUserId String? @unique
+  becameUser   User?   @relation("Geworben", fields: [becameUserId], references: [id], onDelete: SetNull)
+
+  // Gegen doppelte Wettbewerbspunkte, dieselbe Bauart wie die drei Stempel am
+  // Contact: jeder Punkt faellt genau einmal je Kandidatur.
+  talkLoggedAt      DateTime?
+  activatedLoggedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stageEvents StageEvent[]
+
+  @@index([ownerId, nextStepAt])
+  @@index([ownerId, phase, outcome])
+  @@index([contactId])
+}
+
+// Was die Fuehrungskraft sich vorgenommen hat (docs/struktur-plan.md, 5).
+//
+// Der Grund, warum es das ueberhaupt gibt: die Fruehwarn-Signale rechnen sich
+// bei jedem Aufruf neu und wissen nichts davon, dass die Fuehrungskraft schon
+// gehandelt hat. Emil ruft Marc an, Marc loggt am naechsten Tag nichts - und
+// Marc steht wieder rot da, mit demselben Satz. Am vierten Tag liest Emil die
+// rote Liste nicht mehr. Eine Aufgabe ist der Merkzettel, der das verhindert:
+// solange sie offen und die Frist nicht erreicht ist, ruht das Signal.
+//
+// Zwei Festlegungen:
+//   1. NIE automatisch erzeugt. Dazwischen liegt immer ein Tipp.
+//   2. Faellig gehoert sie auf /heute, zwischen die Kundenschritte - nicht in
+//      eine zweite Liste. Eine Fuehrungskraft hat EINE Liste; genau das macht
+//      aus einem Berichts-Werkzeug ein Fuehrungs-Werkzeug.
+model LeadershipTask {
+  version      Int             @default(1)
+  sourceNoteId String?
+  sourceNote   LeadershipNote? @relation(fields: [sourceNoteId], references: [id], onDelete: SetNull)
+  id       String @id @default(cuid())
+  leaderId String
+  leader   User   @relation("Fuehrt", fields: [leaderId], references: [id], onDelete: Cascade)
+  memberId String
+  member   User   @relation("Betrifft", fields: [memberId], references: [id], onDelete: Cascade)
+
+  type  LeadershipTaskType @default(ANRUF)
+  dueAt DateTime
+
+  // Der Anlass, eingefroren im Wortlaut des Signals ("Seit 8 Tagen keine
+  // Aktivitaet"). Bewusst eine Kopie und kein Verweis: das Signal kann bis zur
+  // Faelligkeit verschwunden sein, und dann ergaebe die Aufgabe keinen Sinn
+  // mehr.
+  note   String?
+  signal String?
+
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([leaderId, dueAt])
+  @@index([memberId])
+}
+
+// Kurznachrichten zwischen Partnern (docs/audit-kernmodell.md, 10.6).
+//
+// Bis hierhin sahen sich Partner ausschliesslich als Zeile mit einer Zahl.
+// "Das Team soll sich im Tool spueren" war damit nicht eingeloest.
+//
+// Bewusst KEIN Chat: kein Verlauf, keine Gruppen, keine Anhaenge. Eine
+// Nachricht ist eine Reaktion auf etwas, das gerade passiert ist - meistens
+// ein Ergebnis in der Rangliste. Wer sich lange unterhalten will, hat WhatsApp.
+// Ein Postfach, das gepflegt werden muss, waere wieder Arbeit.
+model Nachricht {
+  id    String @id @default(cuid())
+  vonId String
+  von   User   @relation("NachrichtVon", fields: [vonId], references: [id], onDelete: Cascade)
+  anId  String
+  an    User   @relation("NachrichtAn", fields: [anId], references: [id], onDelete: Cascade)
+  text  String
+
+  createdAt DateTime  @default(now())
+  gelesenAt DateTime?
+
+  @@index([anId, createdAt])
+}
+
+// Ein Push-Abo je Geraet (docs/audit-kernmodell.md, 10.4).
+//
+// Alles Erinnernde im Werkzeug war bis hierhin Holschuld: Fruehwarn-Ampel,
+// Puls, Versprechen, Wiedereinstieg - alles wurde erst sichtbar, wenn jemand
+// die Seite oeffnet. Genau die Leute, die ein Signal ausloesen, oeffnen sie
+// nicht.
+//
+// Ein Konto kann mehrere Abos haben (Handy und Rechner). Der Endpunkt ist
+// eindeutig: derselbe Browser erneuert ihn, statt einen zweiten anzulegen.
+enum ReleaseEventType {
+  IN_APP_VIEWED
+  PUSH_OPENED
+  ACTION_CLICKED
+}
+
+enum ReleaseDeliveryStatus {
+  PENDING
+  RESERVED
+  ACCEPTED
+  RETRYABLE
+  EXPIRED
+  UNKNOWN
+}
+
+// Catalogue content is available only after an explicitly confirmed deployment.
+model ReleasePublication {
+  id            String   @id
+  deploymentId  String
+  contentHash   String
+  confirmedById String
+  publishedAt   DateTime
+  createdAt     DateTime @default(now())
+}
+
+model ReleaseAcknowledgement {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  releaseId      String
+  acknowledgedAt DateTime @default(now())
+  @@unique([userId, releaseId])
+}
+
+model ReleaseEvent {
+  id        String @id @default(cuid())
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  releaseId String
+  type      ReleaseEventType
+  createdAt DateTime @default(now())
+  @@unique([userId, releaseId, type])
+  @@index([releaseId, type])
+}
+
+// Snapshot includes selected accounts without a device; delivery counts cannot
+// silently turn the device-covered subset into the release's account denominator.
+model ReleaseAudience {
+  id              String @id @default(cuid())
+  releaseId       String
+  userId          String
+  // Historical snapshot, not a cascading user relation. Contains no profile
+  // fields; deletion must not silently improve the original denominator.
+  selectedAt      DateTime @default(now())
+  hasSubscription Boolean
+  @@unique([releaseId, userId])
+}
+
+model ReleaseDelivery {
+  id             String @id @default(cuid())
+  releaseId      String
+  userId         String
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Stable snapshot, intentionally retained when a 404/410 device is removed.
+  subscriptionId String
+  status         ReleaseDeliveryStatus @default(PENDING)
+  attempts       Int @default(0)
+  reservedAt     DateTime?
+  acceptedAt     DateTime?
+  nextAttemptAt  DateTime?
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([releaseId, userId, subscriptionId])
+  @@index([status, nextAttemptAt])
+}
+
+model PushAbo {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  createdAt        DateTime  @default(now())
+  // Wann zuletzt erfolgreich zugestellt wurde. Ein Abo, das der Browser
+  // abgeraeumt hat, meldet 404/410 - dann fliegt die Zeile raus.
+  letzteZustellung DateTime?
+
+  @@index([userId])
+}
+
+// Ein Link zum Passwort-Neusetzen.
+//
+// Kein Versand per E-Mail: dafuer braeuchte es einen Maildienst, eine Domain
+// mit SPF und jemanden, der sich um Zustellbarkeit kuemmert. In diesem Netzwerk
+// laufen Einladungen ohnehin per Nachricht - der Reset-Link geht denselben Weg.
+//
+// Deshalb ist der Code hier laenger und zufaelliger als ein Einladungscode: er
+// wird nie vorgelesen, nur weitergeschickt, und wer ihn hat, kommt in ein
+// fremdes Konto. Einmal benutzbar, danach verbraucht.
+model PasswortReset {
+  id     String @id @default(cuid())
+  code   String @unique
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Rueckgaengig fuer Ein-Tipp-Aktionen. Ohne das darf keine Schnellaktion
+// gebaut werden: ein Fehlgriff waere sonst eine Aufraeumaktion aus sechs
+// Schritten, und der Wettbewerbspunkt bliebe stehen.
+//
+// Aufgenommen wird kein Aktions-Protokoll, sondern ein Vorher-Zustand: die
+// geaenderten Kontaktfelder plus die IDs der neu entstandenen Zeilen. Damit
+// funktioniert es fuer jede bestehende Server-Action, ohne sie anzufassen.
+model UndoEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  contactId String?
+  patch     Json
+  createdAt DateTime  @default(now())
+  undoneAt  DateTime?
+
+  @@index([userId, createdAt])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  contactId String
+  contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  text      String
+  date      DateTime     @default(now())
+  createdAt DateTime     @default(now())
+  quotaLog  DailyLog?
+
+  @@index([contactId])
+}
+
+// --- Team-Wettbewerb: taegliche Aktivitaets-Zaehler, getrennt vom privaten Kontakt-CRM ---
+
+enum QuotaType {
+  CALL
+  NUMBERS_PULLED
+  // Ein Name, den jemand anders genannt hat. Bis hierhin buchte eine
+  // Empfehlung NUMBERS_PULLED und war damit so viel wert wie eine Nummer aus
+  // dem eigenen Handy - im Strukturvertrieb ist sie die wertvollste Zeile
+  // ueberhaupt. Additiv angehaengt, alte Zeilen bleiben stehen: Punkte werden
+  // bei jeder Anzeige nachgeschlagen, eine Rueckmigration wuerde jede
+  // vergangene Rangliste umschreiben.
+  REFERRAL
+  APPOINTMENT_SET
+  APPOINTMENT_HELD
+  DEAL_WON
+}
+
+model Person {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  userId    String?    @unique
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime   @default(now())
+  dailyLogs DailyLog[]
+
+  // --- Arena (docs/wettbewerb-plan.md) --------------------------------------
+  // Zuletzt gesehener Platz. Daraus entsteht "du wurdest ueberholt", ohne dass
+  // dafuer nachts etwas laufen muesste: fortgeschrieben wird beim Aufruf der
+  // Rangliste.
+  lastRank   Int?
+  lastRankAt DateTime?
+
+  votes   FeatureVote[]
+  sprints SprintTeilnahme[]
+
+  anwesenheit   Anwesenheit[]
+  feedEintraege FeedEintrag[]
+  reaktionen    FeedReaktion[] @relation("Reagiert")
+}
+
+model DailyLog {
+  id         String    @id @default(cuid())
+  personId   String
+  person     Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  activityId String?   @unique
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  type       QuotaType
+  count      Int
+  date       DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  @@index([personId, date])
+}
+
+// --- Arena: Schalter, Sprints -----------------------------------------------
+// docs/wettbewerb-plan.md, Abschnitte 7 und 14.
+//
+// Jeder Arena-Baustein hat einen Schluessel, einen Schalter und eine
+// Zaehlstelle. So laesst sich ein Baustein abschalten, ohne Code anzufassen,
+// und die Nutzung steht in Summe ueber Koepfe da.
+
+enum FeatureState {
+  TEST // laeuft, wird noch beurteilt
+  LAEUFT // bleibt
+  AUS // abgeschaltet, Daten bleiben stehen
+  ABGERISSEN // Friedhof
+}
+
+model Feature {
+  key          String       @id // "duell", "sprint", "puls"
+  titel        String
+  // Ein konkreter Satz mit Beispiel. Wer nicht versteht, worueber er
+  // abstimmt, stimmt nicht ab.
+  beschreibung String?
+  state        FeatureState @default(TEST)
+  // "Bleibt drin, weil ..." - die Begruendung zum Schalterstand. Steht neben
+  // den Stimmen, wenn gegen sie entschieden wurde.
+  grund        String?
+  seit         DateTime     @default(now())
+
+  votes FeatureVote[]
+}
+
+enum Urteil {
+  STARK
+  GEHT_SO
+  WEG_DAMIT
+}
+
+// Eine Stimme je Kopf und Baustein, einmalig: nach der Abgabe verschwindet die
+// Frage aus der Arena. Ausgewertet wird ausschliesslich in Summe, auf dem
+// Pruefstand - der Baustein soll beurteilt werden, nicht der Mensch.
+model FeatureVote {
+  id         String   @id @default(cuid())
+  featureKey String
+  feature    Feature  @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  personId   String
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  urteil     Urteil
+  createdAt  DateTime @default(now())
+
+  @@unique([featureKey, personId])
+  @@index([featureKey])
+}
+
+// Nutzung statt Meinung. Bewusst ohne Beziehung auf Person: die Zeile wird bei
+// jedem Aufruf hochgezaehlt und niemals einzeln angezeigt - sichtbar ist
+// ausschliesslich die Summe ueber Koepfe. Der Leitsatz gilt auch fuer die
+// Messung: sie zeigt nie auf eine Person.
+model FeatureUse {
+  featureKey String
+  personId   String
+  day        DateTime
+  count      Int      @default(1)
+
+  @@id([featureKey, personId, day])
+  @@index([featureKey, day])
+}
+
+// Wonach im Wegweiser gesucht wurde, ohne dass es etwas gab
+// (docs/findbarkeit-plan.md, Abschnitt 6).
+//
+// Ein Suchbegriff ohne Treffer ist das ehrlichste Stueck Produktforschung, das
+// es gibt: der Nutzer sagt in seinen eigenen Worten, was er erwartet hat und
+// nicht fand. Jede Zeile hier ist entweder ein fehlendes Synonym (billig zu
+// beheben) oder eine fehlende Funktion (teuer, aber wenigstens belegt).
+//
+// Anders als FeatureUse OHNE personId - nicht einmal als Schluessel. Nutzung
+// ist eine Zahl, ein Suchbegriff ist Freitext und kann verraten, woran jemand
+// gerade sitzt. Was nicht gespeichert wird, kann auch nicht auf jemanden
+// zeigen.
+model Suchbegriff {
+  begriff String
+  day     DateTime
+  count   Int      @default(1)
+
+  @@id([begriff, day])
+  @@index([day])
+}
+
+// --- Einstellungen ----------------------------------------------------------
+// Was der BETRIEB festlegt und nicht der Code (docs/emil-feedback-plan.md, D4):
+// die Schwellen der Karrierestufen, spaeter der Fokus-Prozentsatz der
+// Einheitenaufteilung und die Ampel-Kriterien. Gepflegt in der Werkstatt, vom
+// Admin, ohne Deploy - genau das war Emils Satz: "soll dann selbst eintragbar
+// sein".
+//
+// Im Muster von Feature.key: ein sprechender Schluessel als @id, kein
+// kuenstlicher. "schwelle.1" ist die Schwelle, die auf Karrierestufe 1 bis zur
+// naechsten fehlt - der Schluessel sagt selbst, was er meint, und zwei Zeilen
+// fuer dieselbe Sache kann es nicht geben.
+//
+// DER WERT STEHT ALS TEXT DA, obwohl hier Zahlen liegen. Das ist die bewusste
+// Gegenrechnung: EINE Tabelle fuer alles Konfigurierbare statt einer neuen
+// Tabelle und einer neuen Migration je Wert. Ein typisiertes
+// StufenSchwelle(stufe, hundertstel) haette die Schwellen sauber gedeckt und
+// den Fokus-Prozentsatz aus AP-06 schon wieder nicht - und D4 nennt drei
+// solche Werte, nicht einen. Gelesen und geschrieben wird ausschliesslich
+// ueber lib/einstellungen.ts; dort steht die einzige Stelle, an der aus dem
+// Text wieder eine Zahl wird.
+model Einstellung {
+  schluessel String @id
+  wert       String
+
+  // Wer gedreht hat, steht bewusst nicht dabei: die Werkstatt ist der Admin,
+  // einen zweiten gibt es nicht. Wann, reicht.
+  geaendertAt DateTime @default(now()) @updatedAt
+}
+
+// Gemeinsamer Block: 25 Minuten, alle gleichzeitig. Gezaehlt wird ueber
+// DailyLog.createdAt im Fenster - kein zweiter Zaehler, der auseinanderlaufen
+// kann.
+model Sprint {
+  id          String   @id @default(cuid())
+  startAt     DateTime
+  endAt       DateTime
+  startedById String?
+  titel       String?
+  createdAt   DateTime @default(now())
+
+  teilnahmen SprintTeilnahme[]
+
+  @@index([startAt])
+}
+
+model SprintTeilnahme {
+  id       String   @id @default(cuid())
+  sprintId String
+  sprint   Sprint   @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  personId String
+  person   Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@unique([sprintId, personId])
+}
+
+// --- Die Schleife: Anwesenheit und Feed -------------------------------------
+
+// Der Tag, an dem die App offen war. Mehr steht hier nicht.
+//
+// Bewusst KEIN neuer QuotaType: lib/fuehrung.ts liest den letzten DailyLog je
+// Kopf OHNE Typfilter und macht daraus "letzte Aktivitaet" - daran haengt das
+// Stille-Signal. Ein taeglicher Anwesenheits-Eintrag haette es fuer jeden
+// stillgelegt, der die App oeffnet. Ausfuehrlich in lib/anwesenheit.ts.
+//
+// Der zusammengesetzte Primaerschluessel IST die Tageskappe. Eine Kappe im
+// Code koennte falsch stehen, dieser Schluessel nicht.
+model Anwesenheit {
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  day       DateTime // Berliner Kalendertag als UTC-Mitternacht, wie DailyLog.date
+  createdAt DateTime @default(now())
+
+  @@id([personId, day])
+  @@index([day])
+}
+
+// Was jemand von sich aus meldet.
+//
+// Ein Eintrag entsteht NIE von selbst, sondern nur, wenn jemand auf "Ans
+// Netzwerk melden" tippt. Das ist der Unterschied zwischen einer Beobachtung
+// und einer Ansage - und es loest den Leitsatz ohne eine einzige Regel ein:
+// gemeldet wird ausschliesslich Erreichtes, ein Pranger kann gar nicht
+// entstehen.
+//
+// text wird beim Anlegen eingefroren statt bei der Anzeige gerechnet -
+// dieselbe Entscheidung wie bei LeadershipTask.signal: eine Kopie, keine
+// Referenz. Die Zahl dahinter bewegt sich weiter, die Meldung bleibt stehen.
+model FeedEintrag {
+  id         String   @id @default(cuid())
+  personId   String
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  schluessel String // welcher Meilenstein, siehe lib/meilensteine.ts
+  tag        DateTime // Berliner Kalendertag
+  text       String
+  createdAt  DateTime @default(now())
+
+  reaktionen FeedReaktion[]
+
+  // Die Spam-Bremse als Regel in der Datenbank statt als Zaehler im Code:
+  // je Kopf, Meilenstein und Tag genau eine Meldung. Ein Lesen-dann-Schreiben
+  // haette einen Wettlauf dazwischen.
+  @@unique([personId, schluessel, tag])
+  @@index([createdAt])
+}
+
+// Antworten ohne Tippen - dieselben vier Saetze wie SCHNELLTEXTE.
+// Eine Reaktion je Kopf und Eintrag, dieselbe Regel wie bei FeatureVote.
+model FeedReaktion {
+  id        String      @id @default(cuid())
+  eintragId String
+  eintrag   FeedEintrag @relation(fields: [eintragId], references: [id], onDelete: Cascade)
+  personId  String
+  person    Person      @relation("Reagiert", fields: [personId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime    @default(now())
+
+  @@unique([eintragId, personId])
+  @@index([eintragId])
+}
+
+// Zustimmung zur Auftragsverarbeitung (Art. 28 DSGVO). Ein Nachweis, kein
+// Zustand: hier wird angelegt und gelesen, nie geaendert und nie geloescht.
+// Der Riegel dafuer sitzt in der Datenbank (Trigger in der Migration), nicht
+// in dieser Datei - Prisma verbindet sich als Eigentuemer der Tabelle und
+// umgeht damit jede RLS-Policy.
+//
+// Tabellen- und Spaltennamen in snake_case und damit abweichend vom Rest des
+// Schemas: der Name ist vorgegeben und soll in einer Datenschutz-Auskunft
+// genau so lesbar sein, wie er dort steht.
+model AvvAcceptance {
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Die Fassung als Text, nicht als Zahl: "1.0", "2026-09-01", "1.0-ergo" -
+  // was auf dem Dokument steht, steht auch hier.
+  avvVersion String   @map("avv_version")
+  acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz(3)
+
+  ipAddress String? @map("ip_address") @db.Inet
+  userAgent String? @map("user_agent")
+
+  // Je Konto und Fassung genau einmal.
+  @@unique([userId, avvVersion])
+  @@map("avv_acceptances")
+}
+
+// --- Kalender ---------------------------------------------------------------
+// docs/struktur-plan.md, Abschnitt 7.
+//
+// Der Kalender fuehrt DREI Quellen zusammen und ersetzt keine davon:
+//   1. Contact.appointmentAt - der Kundentermin, unveraendert. Daran haengen
+//      Pipeline, Trichter, /heute und der Morgen-Cron; ein Umbau dort waere
+//      grossflaechig und fuer die Ansicht nicht noetig.
+//   2. Termin              - eigene Eintraege OHNE Kontakt.
+//   3. Fremdtermin         - was aus einem angebundenen Kalender hereinkommt.
+
+// Was im Kalender steht, aber kein Kundentermin ist: Schulung, Begleitung,
+// Teammeeting - und vor allem der private Blocker.
+//
+// Der Blocker ist der Grund, aus dem es dieses Modell ueberhaupt gibt. Ohne
+// ihn werden Begleitungen in Zeiten geplant, die laengst belegt sind, und das
+// ist der haeufigste Grund, warum solche Kalender kippen - nicht Technik,
+// sondern Pflegeaufwand. Entschaerft wird es ueber die Genauigkeit: "Mi 14-18
+// belegt" reicht. Deshalb ist ausser dem Zeitraum nichts Pflicht.
+model Termin {
+  leadershipNotes LeadershipNote[]
+  linkedAgreements PartnerVereinbarung[]
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  titel    String
+  art      TerminArt @default(SONSTIGES)
+  von      DateTime
+  bis      DateTime
+  ganztags Boolean   @default(false)
+  ort      String?
+  notiz    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, von])
+}
+
+enum TerminArt {
+  BEGLEITUNG
+  SCHULUNG
+  TEAM
+  BLOCKER // privat, ohne Titel - nur "belegt"
+  SONSTIGES
+}
+
+// Ein angebundener fremder Kalender.
+//
+// Warum nur TIMETREE: das ist der Kalender, den das Team benutzt. Die
+// Aufzaehlung hat trotzdem eine Form, die eine zweite Art vertraegt - ein
+// ICS-Abo waere die naechste, falls jemand Google oder Outlook mitbringt.
+model Kalenderquelle {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name String
+  art  QuellArt
+
+  // TimeTree kennt keine Zugangsschluessel mehr - die offizielle
+  // Schnittstelle wurde am 22.12.2023 abgeschaltet. Bleibt die Anmeldung mit
+  // E-Mail und Passwort. Das Passwort liegt deshalb UMKEHRBAR verschluesselt
+  // hier (AES-256-GCM, lib/crypto.ts), nicht gehasht: wir muessen uns damit
+  // anmelden koennen. Wer Datenbank UND KALENDER_SECRET hat, hat das Passwort.
+  // Der Hinweis darauf steht auf der Quellen-Seite, nicht nur hier.
+  zugangUid     String?
+  zugangChiffre String?
+
+  fremdId String? // Kalender-Id beim Anbieter
+  // Die Marke des letzten Abgleichs. Der naechste Lauf holt damit nur
+  // Geaendertes statt jedes Mal alles.
+  seit    String?
+
+  farbe String  @default("slate")
+  aktiv Boolean @default(true)
+
+  letzterLauf   DateTime?
+  letzterFehler String?
+  // Nach drei Fehllaeufen in Folge wird aktiv auf false gesetzt. Ein Dienst,
+  // der uns nicht mehr hereinlaesst, soll nicht bei jedem Seitenaufruf
+  // dagegenlaufen - das ist der Weg in eine Sperre.
+  fehlerZaehler Int       @default(0)
+
+  termine Fremdtermin[]
+
+  @@index([ownerId])
+}
+
+enum QuellArt {
+  TIMETREE
+}
+
+// Ein hereingeholter Termin. Belegung, kein Vorgang: er verlinkt auf nichts,
+// laesst sich hier nicht aendern, und beim naechsten Abgleich gewinnt immer
+// die Quelle.
+model Fremdtermin {
+  id       String         @id @default(cuid())
+  quelleId String
+  quelle   Kalenderquelle @relation(fields: [quelleId], references: [id], onDelete: Cascade)
+
+  // Die Kennung beim Anbieter. Bei Serienterminen haengt der Beginn hinten
+  // dran ("<id>#2026-09-01T08:00:00Z"), damit jeder entfaltete Einzeltermin
+  // eine eigene, stabile Kennung hat.
+  fremdUid String
+
+  titel    String
+  von      DateTime
+  bis      DateTime
+  ganztags Boolean  @default(false)
+  ort      String?
+
+  @@unique([quelleId, fremdUid])
+  @@index([quelleId, von])
+}
+
+// --- Rueckmeldung (docs/rueckmeldung-plan.md) --------------------------------
+//
+// Der private Rueckkanal an den Admin. Bewusst NICHT die geloeschte
+// Wunschliste aus docs/audit-kernmodell.md, 5.14: die war ein oeffentliches
+// Gremium mit Liste, Stimmen und Friedhof und kostete JEDEN Partner
+// Aufmerksamkeit. Das hier kostet nur den, der von sich aus etwas sagen will -
+// wer schweigt, sieht ein Symbol in der Kopfzeile und sonst nichts. Es gibt
+// weiterhin keine Abstimmung, keine oeffentliche Liste, keine Roadmap im
+// Produkt. Der Baustein ersetzt eine WhatsApp-Nachricht, die es ohnehin
+// schon gibt.
+
+// Drei statt fuenf Sterne: ein Daumentipp ohne Zielen. Die drei bilden genau
+// die Toene gefahr / warnung / erfolg aus components/ui.ts ab.
+enum Stimmung {
+  AERGER
+  GEHT_SO
+  GUT
+}
+
+// Wofuer der Absender es haelt. Ueberspringbar - eine Pflichtwahl an dieser
+// Stelle waere die zweite Huerde nach der ersten.
+enum Anliegen {
+  FEHLER
+  LANGSAM
+  FEHLT
+  LOB
+  SONSTIGES
+}
+
+enum RueckmeldungStand {
+  NEU
+  GESEHEN
+  GEPLANT
+  ERLEDIGT
+  VERWORFEN
+}
+
+model Rueckmeldung {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Stufe 1 des Trichters und das einzige Pflichtfeld. Wer nur antippt und den
+  // Dialog zumacht, hat trotzdem etwas gesagt.
+  stimmung Stimmung
+  anliegen Anliegen?
+  text     String?
+
+  // Von welcher Seite aus gesendet wurde. Der Unterschied zwischen
+  // "irgendwas nervt" und "die Mannschaftsliste nervt".
+  seite String?
+
+  stand RueckmeldungStand @default(NEU)
+
+  // Interne Notiz des Admins. Der Absender sieht sie nie.
+  notiz String?
+
+  // Bleibt in dieser Stufe leer. Die Spalte steht trotzdem schon, damit eine
+  // spaetere Transkription kein Schema-Umbau ist - sie braucht einen AVV mit
+  // dem Anbieter und einen Satz in der Datenschutzerklaerung, und beides ist
+  // eine eigene Entscheidung.
+  transkript String?
+
+  createdAt  DateTime  @default(now())
+  erledigtAt DateTime?
+
+  audio RueckmeldungAudio?
+
+  @@index([stand, createdAt])
+  @@index([userId])
+}
+
+// Die Aufnahme liegt bewusst in einer EIGENEN Tabelle statt als Bytes-Spalte
+// neben dem Text. Sonst zoege jede Listenabfrage im Postfach ohne
+// ausdrueckliches select saemtliche Aufnahmen mit - eine eigene Tabelle macht
+// diesen Fehler unmoeglich statt nur unwahrscheinlich.
+model RueckmeldungAudio {
+  rueckmeldungId String       @id
+  rueckmeldung   Rueckmeldung @relation(fields: [rueckmeldungId], references: [id], onDelete: Cascade)
+
+  daten Bytes
+  // "audio/mp4" von Safari, "audio/webm" von Chrome und Firefox.
+  typ   String
+  ms    Int
+  bytes Int
+}
+
+enum ZielKennzahl {
+  CALL
+  APPOINTMENT_SET
+  APPOINTMENT_HELD
+  UNITS
+}
+
+enum ZielZeitraum {
+  WOCHE
+  MONAT
+  ALT_30_TAGE
+}
+
+enum ZielZusage {
+  OFFEN
+  BESTAETIGT
+  ABGELEHNT
+}
+
+model Ziel {
+  id                String            @id @default(cuid())
+  inhaberId         String
+  inhaber           User              @relation("ZielInhaber", fields: [inhaberId], references: [id], onDelete: Cascade)
+  erstelltVonId     String
+  erstelltVon       User              @relation("ZielErsteller", fields: [erstelltVonId], references: [id], onDelete: Cascade)
+  titel             String
+  wunsch            String?
+  kennzahl          ZielKennzahl
+  zeitraum          ZielZeitraum
+  start             DateTime
+  ende              DateTime
+  zielwert          Int
+  archiviertAt      DateTime?
+  altVersprechenKey String?           @unique
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  beteiligte        ZielBeteiligung[]
+  hauptzielFuer     User[]            @relation("Hauptziel")
+
+  @@index([inhaberId, start, ende])
+  @@index([erstelltVonId])
+}
+
+model Teamziel {
+  id               String       @id @default(cuid())
+  wurzelId         String
+  wurzel           User         @relation("TeamzielWurzel", fields: [wurzelId], references: [id], onDelete: Cascade)
+  verantwortlichId String
+  verantwortlich   User         @relation("TeamzielVerantwortlich", fields: [verantwortlichId], references: [id], onDelete: Cascade)
+  titel            String
+  wunsch           String?
+  kennzahl         ZielKennzahl
+  zeitraum         ZielZeitraum
+  start            DateTime
+  ende             DateTime
+  zielwert         Int
+  archiviertAt     DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([wurzelId, start, ende])
+}
+
+model ZielBeteiligung {
+  zielId       String
+  ziel         Ziel       @relation(fields: [zielId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  zusage       ZielZusage @default(OFFEN)
+  bestaetigtAt DateTime?
+
+  @@id([zielId, userId])
+  @@index([userId, zusage])
+}
+
+model EinheitenErinnerung {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  abschlussId String            @unique
+  abschluss   StageEvent        @relation(fields: [abschlussId], references: [id], onDelete: Cascade)
+  faelligAm   DateTime?
+  buchungId   String?           @unique
+  buchung     Einheitenbuchung? @relation(fields: [buchungId], references: [id], onDelete: SetNull)
+  createdAt   DateTime          @default(now())
+
+  @@index([userId, faelligAm])
+}
+
+enum VereinbarungArt {
+  AUFGABE
+  TERMIN
+}
+
+enum VereinbarungStatus {
+  VORGESCHLAGEN
+  BESTAETIGT
+  ERLEDIGT
+  ABGELEHNT
+  ABGESAGT
+}
+
+model PartnerVereinbarung {
+  sourceNoteId       String?
+  sourceNote         LeadershipNote? @relation(fields: [sourceNoteId], references: [id], onDelete: SetNull)
+  appointmentId      String?
+  appointment        Termin? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  id                 String                @id @default(cuid())
+  initiatorId        String
+  initiator          User                  @relation("VereinbarungInitiiert", fields: [initiatorId], references: [id], onDelete: Cascade)
+  empfaengerId       String
+  empfaenger         User                  @relation("VereinbarungEmpfangen", fields: [empfaengerId], references: [id], onDelete: Cascade)
+  verantwortlicherId String
+  verantwortlicher   User                  @relation("VereinbarungVerantwortlich", fields: [verantwortlicherId], references: [id], onDelete: Cascade)
+  titel              String
+  art                VereinbarungArt       @default(AUFGABE)
+  faelligAm          DateTime
+  endetAm            DateTime?
+  status             VereinbarungStatus    @default(VORGESCHLAGEN)
+  version            Int                   @default(1)
+  vorgeschlagenVonId String
+  bestaetigtVonId    String?
+  bestaetigtAm       DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  verlauf            VereinbarungVersion[]
+
+  @@index([initiatorId, status, faelligAm])
+  @@index([empfaengerId, status, faelligAm])
+}
+
+// Private author's record. Rank and team membership never grant note access.
+model LeadershipNote {
+  id              String @id @default(cuid())
+  ownerId         String
+  owner           User @relation("LeadershipNoteOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  partnerId       String
+  partner         User @relation("LeadershipNotePartner", fields: [partnerId], references: [id], onDelete: Cascade)
+  text            String
+  occurredAt      DateTime
+  version         Int @default(1)
+  sourceRequestId String?
+  appointmentId   String?
+  appointment     Termin? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  tasks           LeadershipTask[]
+  agreements      PartnerVereinbarung[]
+
+  @@index([ownerId, partnerId, occurredAt])
+}
+
+model VereinbarungVersion {
+  id             String              @id @default(cuid())
+  vereinbarungId String
+  vereinbarung   PartnerVereinbarung @relation(fields: [vereinbarungId], references: [id], onDelete: Cascade)
+  version        Int
+  akteurId       String
+  aktion         String
+  stand          Json
+  createdAt      DateTime            @default(now())
+
+  @@unique([vereinbarungId, version])
+}
+
+// Private Berechnungen; optional an einen eigenen Kontakt gebunden.
+model ZinsSzenario {
+  id        String   @id
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  title     String
+  values    Json
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, updatedAt])
+  @@index([contactId])
+}
+
+// --- Anfrage von aussen -------------------------------------------------------
+// Was auf der oeffentlichen Seite /anfrage abgeschickt wird: ein Berater, der
+// das Cockpit gesehen hat und einen Zugang will. Kein Konto, keine Session -
+// deshalb steht hier Freitext statt einer Beziehung.
+//
+// BEWUSST OHNE Relation auf User oder Person: die Anfrage kommt von jemandem,
+// den die Instanz nicht kennt, und sie soll den spaeteren Mandanten-Umbau
+// nicht verteuern - eine Tabelle ohne Kanten laesst sich jedem Mandanten
+// zuschlagen oder global lassen, ohne dass eine Abfrage bricht.
+model Anfrage {
+  id String @id @default(cuid())
+
+  name      String
+  // Freitext statt getrennter Felder: Handynummer, E-Mail, Instagram - was der
+  // Absender eben dalassen will. Eine Pflicht-E-Mail waere die erste Huerde.
+  kontakt   String
+  // Woher er kommt / was er will. Ueberspringbar.
+  nachricht String?
+
+  gesehenAt  DateTime?
+  erledigtAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+}

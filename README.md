@@ -1,6 +1,6 @@
 # CRM & Jarvis
 
-[Alle öffentlichen Arbeitsproben im Überblick](https://github.com/adrienwottke-stack/engine-playground/blob/main/PORTFOLIO.md)
+[Alle öffentlichen Arbeitsproben im Überblick](https://github.com/adrienwottke-stack/project-portfolio)
 Kontakt- und Vertriebsanwendung mit Aufgaben, Kalender und einem integrierten KI-Assistenten.
 
 ## Projekt und Beitrag
